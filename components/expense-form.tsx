@@ -123,7 +123,14 @@ export function ExpenseForm({ categories, onSubmit, onCancel, initialData }: Exp
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const user_id = initialData?.user_id || 'local-user';
+    // Always get the authenticated user's UUID
+    const supabase = await import("@/lib/supabase/client").then(m => m.createClient());
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      alert("You must be logged in to create an expense.");
+      return;
+    }
+    const user_id = user.id;
     // Upload new files
     let uploadedUrls: string[] = [];
     for (const file of attachments) {
