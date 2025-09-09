@@ -1,6 +1,6 @@
 type SalesFormState = {
   transaction_date: string
-  product_type: "Air Ticket" | "Hotel" | "Tour Package" | ""
+  product_type: "Air Ticket" | "Hotel" | "Tour Package" | "Visa" | ""
   trip_type: "one_way" | "round_trip" | ""
   departure_date: string
   return_date: string
@@ -35,6 +35,14 @@ type SalesFormState = {
   end_date: string
   number_of_travelers: string
   package_reference: string
+  // Visa specific
+  country: string
+  visa_type: string
+  number_of_applicants: string
+  courier_fee: string
+  submission_date: string
+  received_date: string
+  visa_status: "Pending" | "Submitted" | "Approved" | "Rejected" | "Delivered" | ""
 }
 
 "use client"
@@ -123,6 +131,14 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
     end_date: initialData?.end_date || "",
     number_of_travelers: initialData?.number_of_travelers?.toString() || "",
     package_reference: initialData?.package_reference || "",
+    // Visa specific
+    country: initialData?.country || "",
+    visa_type: initialData?.visa_type || "",
+    number_of_applicants: initialData?.number_of_applicants?.toString() || "",
+    courier_fee: initialData?.courier_fee?.toString() || "",
+    submission_date: initialData?.submission_date || "",
+    received_date: initialData?.received_date || "",
+    visa_status: initialData?.visa_status || "",
   })
 
   // Auto-calculate due_amount when payment_status is Partial and amount_paid or sale_amount changes
@@ -276,6 +292,15 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
       number_of_travelers:
         formData.product_type === "Tour Package" ? Number.parseInt(formData.number_of_travelers) || null : null,
       package_reference: formData.product_type === "Tour Package" ? formData.package_reference || null : null,
+
+      // Visa
+      country: formData.product_type === "Visa" ? formData.country || null : null,
+      visa_type: formData.product_type === "Visa" ? formData.visa_type || null : null,
+      number_of_applicants: formData.product_type === "Visa" ? Number.parseInt(formData.number_of_applicants) || null : null,
+      courier_fee: formData.product_type === "Visa" ? Number.parseFloat(formData.courier_fee) || null : null,
+      submission_date: formData.product_type === "Visa" ? formData.submission_date || null : null,
+      received_date: formData.product_type === "Visa" ? formData.received_date || null : null,
+      visa_status: formData.product_type === "Visa" ? formData.visa_status || null : null,
 
       // Attachments
       attachment_urls: allUrls,
@@ -489,6 +514,85 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
           </>
         )
 
+      case "Visa":
+        return (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="country">Country</Label>
+              <Input
+                id="country"
+                placeholder="e.g., Malaysia"
+                value={formData.country}
+                onChange={e => setFormData(prev => ({ ...prev, country: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="visa-type">Visa Type</Label>
+              <Input
+                id="visa-type"
+                placeholder="e.g., Tourist, Student, Work"
+                value={formData.visa_type}
+                onChange={e => setFormData(prev => ({ ...prev, visa_type: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="number-of-applicants">No. of Applicants</Label>
+              <Input
+                id="number-of-applicants"
+                type="number"
+                min="1"
+                placeholder="1"
+                value={formData.number_of_applicants}
+                onChange={e => setFormData(prev => ({ ...prev, number_of_applicants: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="courier-fee">Courier / Delivery Fee</Label>
+              <Input
+                id="courier-fee"
+                type="number"
+                min="0"
+                placeholder="0.00"
+                value={formData.courier_fee}
+                onChange={e => setFormData(prev => ({ ...prev, courier_fee: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="submission-date">Submission Date</Label>
+              <Input
+                id="submission-date"
+                type="date"
+                value={formData.submission_date}
+                onChange={e => setFormData(prev => ({ ...prev, submission_date: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="received-date">Received Date</Label>
+              <Input
+                id="received-date"
+                type="date"
+                value={formData.received_date}
+                onChange={e => setFormData(prev => ({ ...prev, received_date: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="visa-status">Visa Status</Label>
+              <select
+                id="visa-status"
+                className="w-full border rounded px-3 py-2"
+                value={formData.visa_status}
+                onChange={e => setFormData(prev => ({ ...prev, visa_status: e.target.value as SalesFormState["visa_status"] }))}
+              >
+                <option value="">Select status</option>
+                <option value="Pending">Pending</option>
+                <option value="Submitted">Submitted</option>
+                <option value="Approved">Approved</option>
+                <option value="Rejected">Rejected</option>
+                <option value="Delivered">Delivered</option>
+              </select>
+            </div>
+          </>
+        )
       default:
         return null
     }
@@ -536,6 +640,7 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
                   <SelectItem value="Air Ticket">Air Ticket</SelectItem>
                   <SelectItem value="Hotel">Hotel</SelectItem>
                   <SelectItem value="Tour Package">Tour Package</SelectItem>
+                  <SelectItem value="Visa">Visa</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -55,7 +55,7 @@ export interface Sale {
   id: string
   user_id: string
   transaction_date: string
-  product_type: "Air Ticket" | "Hotel" | "Tour Package"
+  product_type: "Air Ticket" | "Hotel" | "Tour Package" | "Visa"
   customer_id: string | null
   customer_name: string
   customer_phone: string | null
@@ -76,6 +76,7 @@ export interface Sale {
   notes: string | null
   tags: string[]
   attachment_urls: string[] | null // Multiple attachments
+
 
   // Product-specific fields
   vendor: string | null
@@ -104,6 +105,15 @@ export interface Sale {
   end_date: string | null
   number_of_travelers: number | null
   package_reference: string | null
+
+  // Visa Sales specific
+  country: string | null
+  visa_type: string | null
+  number_of_applicants: number | null
+  courier_fee: number | null
+  submission_date: string | null
+  received_date: string | null
+  visa_status: "Pending" | "Submitted" | "Approved" | "Rejected" | "Delivered" | null
 
   created_at: string
   updated_at: string
