@@ -97,7 +97,7 @@ export function FinancialSummaryReport({ data, dateRange }: FinancialSummaryRepo
             <div className={`text-2xl font-bold ${getProfitColor(data.netProfit)}`}>
               {formatCurrency(data.netProfit)}
             </div>
-            <p className="text-xs text-muted-foreground">{data.profitMargin.toFixed(1)}% margin</p>
+            <p className="text-xs text-muted-foreground">{(data.profitMargin || 0).toFixed(1)}% margin</p>
           </CardContent>
         </Card>
 
@@ -130,12 +130,12 @@ export function FinancialSummaryReport({ data, dateRange }: FinancialSummaryRepo
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
                     outerRadius={80}
                     fill="#8884d8"
                     dataKey="value"
                   >
-                    {data.expensesByCategory.map((entry, index) => (
+                    {(data.expensesByCategory || []).map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
@@ -200,7 +200,7 @@ export function FinancialSummaryReport({ data, dateRange }: FinancialSummaryRepo
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {data.topVendors.map((vendor, index) => (
+              {(data.topVendors || []).map((vendor, index) => (
                 <div key={vendor.name} className="flex items-center justify-between p-3 border rounded-lg">
                   <div className="flex items-center gap-3">
                     <Badge variant="outline">{index + 1}</Badge>
@@ -225,7 +225,7 @@ export function FinancialSummaryReport({ data, dateRange }: FinancialSummaryRepo
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {data.topCustomers.map((customer, index) => (
+              {(data.topCustomers || []).map((customer, index) => (
                 <div key={customer.name} className="flex items-center justify-between p-3 border rounded-lg">
                   <div className="flex items-center gap-3">
                     <Badge variant="outline">{index + 1}</Badge>

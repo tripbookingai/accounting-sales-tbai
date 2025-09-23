@@ -89,7 +89,7 @@ export function ExpenseReport({ data, dateRange }: ExpenseReportProps) {
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{data.categoryBreakdown.length}</div>
+            <div className="text-2xl font-bold">{data.categoryBreakdown?.length || 0}</div>
             <p className="text-xs text-muted-foreground">Expense categories</p>
           </CardContent>
         </Card>
@@ -103,7 +103,7 @@ export function ExpenseReport({ data, dateRange }: ExpenseReportProps) {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {data.categoryBreakdown.map((category) => (
+            {(data.categoryBreakdown || []).map((category) => (
               <div key={category.category} className="flex items-center justify-between p-4 border rounded-lg">
                 <div>
                   <div className="font-medium">{category.category}</div>
@@ -112,7 +112,7 @@ export function ExpenseReport({ data, dateRange }: ExpenseReportProps) {
                 <div className="text-right">
                   <div className="font-bold">{formatCurrency(category.amount)}</div>
                   <div className="text-sm text-muted-foreground">
-                    {((category.amount / data.totalAmount) * 100).toFixed(1)}%
+                    {(((category.amount || 0) / (data.totalAmount || 1)) * 100).toFixed(1)}%
                   </div>
                 </div>
               </div>
@@ -129,7 +129,7 @@ export function ExpenseReport({ data, dateRange }: ExpenseReportProps) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {data.statusBreakdown.map((status) => (
+            {(data.statusBreakdown || []).map((status) => (
               <div key={status.status} className="p-4 border rounded-lg text-center">
                 <Badge className={`mb-2 ${getStatusColor(status.status)}`}>{status.status}</Badge>
                 <div className="font-bold text-lg">{formatCurrency(status.amount)}</div>
@@ -161,14 +161,14 @@ export function ExpenseReport({ data, dateRange }: ExpenseReportProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.expenses.length === 0 ? (
+                {(data.expenses || []).length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       No expenses found for the selected criteria
                     </TableCell>
                   </TableRow>
                 ) : (
-                  data.expenses.map((expense) => (
+                  (data.expenses || []).map((expense) => (
                     <TableRow key={expense.id}>
                       <TableCell className="font-medium">
                         {new Date(expense.date).toLocaleDateString("en-GB")}

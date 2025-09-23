@@ -24,6 +24,7 @@ export interface ReportFilters {
   customer: string
   paymentStatus: string
   approvalStatus: string
+  productType: string
 }
 
 export function ReportFilters({ onFiltersChange, onGenerateReport, onExportReport }: ReportFiltersProps) {
@@ -37,6 +38,7 @@ export function ReportFilters({ onFiltersChange, onGenerateReport, onExportRepor
     customer: "all",
     paymentStatus: "all",
     approvalStatus: "all",
+    productType: "all",
   })
 
   const handleFilterChange = (key: keyof ReportFilters, value: string) => {
@@ -148,6 +150,25 @@ export function ReportFilters({ onFiltersChange, onGenerateReport, onExportRepor
               </SelectContent>
             </Select>
           </div>
+
+          {/* Product Type Filter - Show only for sales-related reports */}
+          {(filters.reportType === "sales" || filters.reportType === "summary" || filters.reportType === "customer-analysis") && (
+            <div className="space-y-2">
+              <Label>Product Type</Label>
+              <Select value={filters.productType} onValueChange={(value) => handleFilterChange("productType", value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Products</SelectItem>
+                  <SelectItem value="Air Ticket">Air Ticket</SelectItem>
+                  <SelectItem value="Hotel">Hotel</SelectItem>
+                  <SelectItem value="Tour Package">Tour Package</SelectItem>
+                  <SelectItem value="Visa">Visa</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
         {/* Custom Date Range */}
