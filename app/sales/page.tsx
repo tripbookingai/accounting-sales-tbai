@@ -68,7 +68,7 @@ export default function SalesPage() {
   const handleSubmit = async (
     saleData: Omit<
       Sale,
-      "id" | "created_at" | "updated_at" | "profit_loss" | "profit_margin" | "outstanding_balance" | "nights"
+      "id" | "created_at" | "updated_at" | "profit_loss" | "profit_margin" | "outstanding_balance"
     >,
   ) => {
     try {
@@ -78,45 +78,12 @@ export default function SalesPage() {
       } = await supabase.auth.getUser();
       if (!user) throw new Error("User not authenticated");
 
-      // Check if customer exists by email
-      let customerId = saleData.customer_id
-      if (saleData.customer_email) {
-        const { data: existingCustomers, error: customerError } = await supabase
-          .from("customers")
-          .select("id")
-          .eq("email", saleData.customer_email)
-          .maybeSingle()
-        if (customerError) throw customerError
-        if (existingCustomers && existingCustomers.id) {
-          customerId = existingCustomers.id
-        } else {
-          // Create new customer
-          const { data: newCustomer, error: createError } = await supabase
-            .from("customers")
-            .insert({
-              user_id: user.id,
-              name: saleData.customer_name,
-              phone: saleData.customer_phone,
-              email: saleData.customer_email,
-            })
-            .select()
-            .single()
-          if (createError) throw createError
-          customerId = newCustomer.id
-        }
-      }
-
-      const saleToSave = { ...saleData, customer_id: customerId }
-
-      // Remove generated columns from saleToSave
-      const { profit_loss, ...saleToSaveWithoutGenerated } = saleToSave;
-  const { profit_margin, ...finalSaleToSave } = saleToSaveWithoutGenerated;
-  const { outstanding_balance, ...finalSaleToSaveNoGenerated } = finalSaleToSave;
+      // Customer ID should already be handled by the form using findOrCreateCustomerByPhone
       if (editingSale) {
         // Update existing sale
         const { data, error } = await supabase
           .from("sales")
-          .update({ ...finalSaleToSaveNoGenerated, updated_at: new Date().toISOString() })
+          .update({ ...saleData, updated_at: new Date().toISOString() })
           .eq("id", editingSale.id)
           .select()
           .single()
@@ -126,7 +93,7 @@ export default function SalesPage() {
         setSales((prev) => prev.map((sale) => (sale.id === editingSale.id ? data : sale)))
       } else {
         // Create new sale
-  const { data, error } = await supabase.from("sales").insert(finalSaleToSaveNoGenerated).select().single()
+  const { data, error } = await supabase.from("sales").insert(saleData).select().single()
 
         if (error) throw error
 

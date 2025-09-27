@@ -3,7 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users } from "lucide-react"
+import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Users, Hotel } from "lucide-react"
 
 interface SalesReportData {
   sales: any[]
@@ -15,6 +15,9 @@ interface SalesReportData {
   averageSaleValue: number
   totalProfit: number
   profitMargin: number
+  // Hotel-specific data
+  totalHotelNights?: number
+  hotelNightsByVendor?: Array<{ vendor: string; nights: number; amount: number; bookings: number }>
 }
 
 interface SalesReportProps {
@@ -58,7 +61,7 @@ export function SalesReport({ data, dateRange, productType }: SalesReportProps) 
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
@@ -108,6 +111,20 @@ export function SalesReport({ data, dateRange, productType }: SalesReportProps) 
             <div className="text-2xl font-bold">{(data.profitMargin || 0).toFixed(2)}%</div>
           </CardContent>
         </Card>
+
+        {/* Hotel Nights Card - Show only for Hotel reports or All products */}
+        {(productType === "Hotel" || productType === "all" || !productType) && data.totalHotelNights !== undefined && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Hotel Nights</CardTitle>
+              <Hotel className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{data.totalHotelNights || 0}</div>
+              <p className="text-xs text-muted-foreground">All vendors combined</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Breakdown Charts */}
@@ -173,6 +190,34 @@ export function SalesReport({ data, dateRange, productType }: SalesReportProps) 
         </Card>
       </div>
 
+      {/* Hotel Nights by Vendor - Show only when we have hotel data */}
+      {(productType === "Hotel" || productType === "all" || !productType) && data.hotelNightsByVendor && data.hotelNightsByVendor.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Hotel Nights by Vendor</CardTitle>
+            <CardDescription>Total nights and revenue breakdown by hotel vendors</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {data.hotelNightsByVendor.map((vendor, index) => (
+                <div key={index} className="flex justify-between items-center p-3 rounded-lg bg-muted/50">
+                  <div>
+                    <div className="text-sm font-medium">{vendor.vendor || 'Unknown Vendor'}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {vendor.bookings || 0} booking{vendor.bookings !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold text-primary">{vendor.nights || 0} nights</div>
+                    <div className="text-sm font-medium">{formatCurrency(vendor.amount || 0)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Detailed Sales Table */}
       <Card>
         <CardHeader>
@@ -190,6 +235,12 @@ export function SalesReport({ data, dateRange, productType }: SalesReportProps) 
                 <TableHead>Profit</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Vendor</TableHead>
+                {(productType === "Hotel" || productType === "all" || !productType) && (
+                  <>
+                    <TableHead>Rooms</TableHead>
+                    <TableHead>Total Nights</TableHead>
+                  </>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -206,6 +257,16 @@ export function SalesReport({ data, dateRange, productType }: SalesReportProps) 
                     </Badge>
                   </TableCell>
                   <TableCell>{sale.vendor || '-'}</TableCell>
+                  {(productType === "Hotel" || productType === "all" || !productType) && (
+                    <>
+                      <TableCell>
+                        {sale.product_type === "Hotel" && sale.number_of_rooms ? sale.number_of_rooms : '-'}
+                      </TableCell>
+                      <TableCell>
+                        {sale.product_type === "Hotel" && sale.nights ? sale.nights : '-'}
+                      </TableCell>
+                    </>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

@@ -28,6 +28,7 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
 
   const filteredSales = sales.filter((sale: Sale) => {
     const matchesSearch =
+      sale.customer_phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       sale.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       sale.vendor?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       sale.booking_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -109,7 +110,7 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by customer, vendor, or booking ID..."
+              placeholder="Search by customer phone, name, vendor, or booking ID..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
@@ -180,7 +181,10 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
                       <div>
                         <div className="font-medium">{sale.customer_name}</div>
                         {sale.customer_phone && (
-                          <div className="text-xs text-muted-foreground">{sale.customer_phone}</div>
+                          <div className="text-xs font-semibold text-blue-600">{sale.customer_phone}</div>
+                        )}
+                        {sale.customer_email && (
+                          <div className="text-xs text-muted-foreground">{sale.customer_email}</div>
                         )}
                       </div>
                     </TableCell>

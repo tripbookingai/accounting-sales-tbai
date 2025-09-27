@@ -28,6 +28,7 @@ type SalesFormState = {
   checkout_date: string
   booking_confirmation: string
   nights: string
+  number_of_rooms: string
   package_name: string
   destinations: string
   duration_days: string
@@ -73,6 +74,7 @@ async function uploadAttachment(file: File): Promise<string | null> {
 }
 import type { Sale, Customer, Vendor } from "@/lib/types"
 import { createClient } from "@/lib/supabase/client"
+import { findOrCreateCustomerByPhoneClient } from "@/lib/customer-client"
 
 interface SalesFormProps {
   customers: Customer[]
@@ -80,7 +82,7 @@ interface SalesFormProps {
   onSubmit: (
     sale: Omit<
       Sale,
-      "id" | "created_at" | "updated_at" | "profit_loss" | "profit_margin" | "outstanding_balance" | "nights"
+      "id" | "created_at" | "updated_at" | "profit_loss" | "profit_margin" | "outstanding_balance"
     >,
   ) => void
   onCancel?: () => void
@@ -124,6 +126,7 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
     checkout_date: initialData?.checkout_date || "",
     booking_confirmation: initialData?.booking_confirmation || "",
     nights: initialData?.nights?.toString() || "",
+    number_of_rooms: initialData?.number_of_rooms?.toString() || "1",
     package_name: initialData?.package_name || "",
     destinations: initialData?.destinations || "",
     duration_days: initialData?.duration_days?.toString() || "",
@@ -150,15 +153,18 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
   // ...existing code...
   // ...existing code...
 
-  // Auto-calculate nights for Hotel
+  // Auto-calculate nights for Hotel (rooms × nights based on check-in/out dates)
   useEffect(() => {
     if (formData.product_type === "Hotel" && formData.checkin_date && formData.checkout_date) {
       const checkin = new Date(formData.checkin_date)
       const checkout = new Date(formData.checkout_date)
-      const diff = Math.ceil((checkout.getTime() - checkin.getTime()) / (1000 * 60 * 60 * 24))
-      setFormData(prev => ({ ...prev, nights: diff > 0 ? diff.toString() : "" }))
+      const daysDiff = Math.ceil((checkout.getTime() - checkin.getTime()) / (1000 * 60 * 60 * 24))
+      // Default to 1 room if number_of_rooms is not set (for backward compatibility)
+      const rooms = parseInt(formData.number_of_rooms) || 1
+      const totalNights = daysDiff > 0 ? daysDiff * rooms : 0
+      setFormData(prev => ({ ...prev, nights: totalNights > 0 ? totalNights.toString() : "" }))
     }
-  }, [formData.product_type, formData.checkin_date, formData.checkout_date])
+  }, [formData.product_type, formData.checkin_date, formData.checkout_date, formData.number_of_rooms])
 
   // Customer search state for search-as-you-type
 
@@ -176,11 +182,19 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
   let filteredCustomers = customers
   if (customerSearch) {
     const q = customerSearch.toLowerCase()
+    // Filter customers, prioritizing phone number matches
     filteredCustomers = customers.filter(c =>
-      c.name.toLowerCase().includes(q) ||
       (c.phone && c.phone.toLowerCase().includes(q)) ||
+      c.name.toLowerCase().includes(q) ||
       (c.email && c.email.toLowerCase().includes(q))
-    )
+    ).sort((a, b) => {
+      // Prioritize phone number matches
+      const aPhoneMatch = a.phone && a.phone.toLowerCase().includes(q)
+      const bPhoneMatch = b.phone && b.phone.toLowerCase().includes(q)
+      if (aPhoneMatch && !bPhoneMatch) return -1
+      if (!aPhoneMatch && bPhoneMatch) return 1
+      return 0
+    })
   }
 
   useEffect(() => {
@@ -204,9 +218,24 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
     setCalculatedBalance(balance)
   }, [formData.sale_amount, formData.cogs, formData.transaction_fee_percent, formData.payment_received])
 
-  // Auto-fill customer details when customer is selected
+  // Auto-fill customer details when customer phone is available (prioritize phone over customer_id)
   useEffect(() => {
-    if (formData.customer_id) {
+    if (formData.customer_phone) {
+      const customer = customers.find((c) => c.phone === formData.customer_phone)
+      if (customer && customer.id !== formData.customer_id) {
+        setFormData((prev) => ({
+          ...prev,
+          customer_id: customer.id,
+          customer_name: customer.name,
+          customer_email: customer.email || "",
+        }))
+      }
+    }
+  }, [formData.customer_phone, customers, formData.customer_id])
+
+  // Auto-fill customer details when customer is selected from dropdown (only if no phone number)
+  useEffect(() => {
+    if (formData.customer_id && !formData.customer_phone) {
       const customer = customers.find((c) => c.id === formData.customer_id)
       if (customer) {
         setFormData((prev) => ({
@@ -217,7 +246,26 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
         }))
       }
     }
-  }, [formData.customer_id, customers])
+  }, [formData.customer_id, customers, formData.customer_phone])
+
+  // Validate customer_id matches customer_phone when editing (fix historical data issues)
+  useEffect(() => {
+    if (initialData && formData.customer_id && formData.customer_phone && customers.length > 0) {
+      const customerById = customers.find((c) => c.id === formData.customer_id)
+      const customerByPhone = customers.find((c) => c.phone === formData.customer_phone)
+      
+      // If customer_id points to wrong customer (phone mismatch), fix it
+      if (customerById && customerByPhone && customerById.id !== customerByPhone.id) {
+        console.warn('Customer ID mismatch detected, fixing using phone number:', formData.customer_phone)
+        setFormData((prev) => ({
+          ...prev,
+          customer_id: customerByPhone.id,
+          customer_name: customerByPhone.name,
+          customer_email: customerByPhone.email || "",
+        }))
+      }
+    }
+  }, [initialData, formData.customer_id, formData.customer_phone, customers])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -226,13 +274,28 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) return
-    // Upload new files
-    let uploadedUrls: string[] = [];
-    for (const file of attachments) {
-      const url = await uploadAttachment(file);
-      if (url) uploadedUrls.push(url);
+
+    // Validate phone number is provided
+    if (!formData.customer_phone?.trim()) {
+      alert("Customer phone number is required")
+      return
     }
-    const allUrls = [...existingAttachments, ...uploadedUrls];
+
+    try {
+      // Find or create customer by phone number
+      const customer = await findOrCreateCustomerByPhoneClient({
+        name: formData.customer_name,
+        phone: formData.customer_phone,
+        email: formData.customer_email || null
+      })
+
+      // Upload new files
+      let uploadedUrls: string[] = [];
+      for (const file of attachments) {
+        const url = await uploadAttachment(file);
+        if (url) uploadedUrls.push(url);
+      }
+      const allUrls = [...existingAttachments, ...uploadedUrls];
     const saleData = {
       ...(initialData?.id ? { id: initialData.id } : {}),
       user_id: user.id,
@@ -246,7 +309,7 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
           : null,
       departure_date: formData.product_type === "Air Ticket" ? formData.departure_date : null,
       return_date: formData.product_type === "Air Ticket" && formData.trip_type === "round_trip" ? formData.return_date : null,
-      customer_id: formData.customer_id || null,
+      customer_id: customer.id,
       customer_name: formData.customer_name,
       customer_phone: formData.customer_phone || null,
       customer_email: formData.customer_email || null,
@@ -255,13 +318,11 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
       cogs: Number.parseFloat(formData.cogs),
       transaction_fee_percent: Number.parseFloat(formData.transaction_fee_percent),
       transaction_fee_amount: calculatedFee,
-      profit_loss: calculatedProfit,
+      // profit_loss, profit_margin, outstanding_balance are generated columns in DB
       net_profit_loss: calculatedNetProfit,
-      profit_margin: calculatedMargin,
       net_profit_margin: calculatedNetMargin,
       payment_method: formData.payment_method || null,
       payment_received: Number.parseFloat(formData.payment_received),
-      outstanding_balance: calculatedBalance,
       payment_status: formData.payment_status as any,
       amount_paid: formData.payment_status === "Partial" ? parseFloat(formData.amount_paid || "0") : null,
       notes: formData.notes || null,
@@ -281,6 +342,8 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
       location: formData.product_type === "Hotel" ? formData.location || null : null,
       checkin_date: formData.product_type === "Hotel" ? formData.checkin_date || null : null,
       checkout_date: formData.product_type === "Hotel" ? formData.checkout_date || null : null,
+      nights: formData.product_type === "Hotel" ? Number.parseInt(formData.nights) || null : null,
+      number_of_rooms: formData.product_type === "Hotel" ? Number.parseInt(formData.number_of_rooms) || null : null,
       booking_confirmation: formData.product_type === "Hotel" ? formData.booking_confirmation || null : null,
 
       // Tour Package
@@ -305,7 +368,22 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
       // Attachments
       attachment_urls: allUrls,
     }
+
+    // Find or create customer by phone number
+    if (formData.customer_phone) {
+      const customer = await findOrCreateCustomerByPhoneClient({
+        name: formData.customer_name,
+        phone: formData.customer_phone,
+        email: formData.customer_email || null
+      })
+      saleData.customer_id = customer.id
+    }
+    
     onSubmit(saleData)
+    } catch (error) {
+      console.error("Error creating/updating customer:", error)
+      alert("Error processing customer information. Please try again.")
+    }
   }
 
   const addTag = () => {
@@ -420,13 +498,24 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="nights">Nights</Label>
+              <Label htmlFor="number-of-rooms">Number of Rooms</Label>
+              <Input
+                id="number-of-rooms"
+                type="number"
+                min="1"
+                value={formData.number_of_rooms}
+                onChange={(e) => setFormData((prev) => ({ ...prev, number_of_rooms: e.target.value }))}
+                placeholder="1"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="nights">Total Nights (Rooms × Days)</Label>
               <Input
                 id="nights"
                 type="number"
                 value={formData.nights}
                 readOnly
-                placeholder="Auto-calculated"
+                placeholder="Auto-calculated (rooms × days)"
               />
             </div>
             <div className="space-y-2">
@@ -650,7 +739,7 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
               <div className="relative">
                 <Input
                   id="customer-search"
-                  placeholder="Search customer by name, phone, or email"
+                  placeholder="Search customer by phone number (unique), name, or email"
                   value={formData.customer_name}
                   onChange={e => {
                     setFormData(prev => ({ ...prev, customer_name: e.target.value }))
@@ -679,7 +768,10 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
                           }}
                         >
                           <div className="font-medium">{customer.name}</div>
-                          <div className="text-xs text-muted-foreground">{customer.phone || ""} {customer.email ? `| ${customer.email}` : ""}</div>
+                          <div className="text-xs text-muted-foreground">
+                            <span className="font-semibold text-blue-600">{customer.phone || "No phone"}</span>
+                            {customer.email ? ` | ${customer.email}` : ""}
+                          </div>
                         </div>
                       ))
                     )}
@@ -700,21 +792,22 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="customer-phone">Customer Phone</Label>
+              <Label htmlFor="customer-phone">Customer Phone *</Label>
               <Input
                 id="customer-phone"
-                placeholder="Phone number"
+                placeholder="Phone number (unique identifier)"
                 value={formData.customer_phone}
                 onChange={(e) => setFormData((prev) => ({ ...prev, customer_phone: e.target.value }))}
+                required
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="customer-email">Customer Email</Label>
+              <Label htmlFor="customer-email">Customer Email (Optional)</Label>
               <Input
                 id="customer-email"
                 type="email"
-                placeholder="Email address"
+                placeholder="Email address (can be repeated)"
                 value={formData.customer_email}
                 onChange={(e) => setFormData((prev) => ({ ...prev, customer_email: e.target.value }))}
               />

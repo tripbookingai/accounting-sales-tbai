@@ -95,6 +95,7 @@ export interface Sale {
   checkin_date: string | null
   checkout_date: string | null
   nights: number | null
+  number_of_rooms: number | null
   booking_confirmation: string | null
 
   // Tour Package specific

@@ -346,6 +346,45 @@ export default function ReportsPage() {
           .sort((a, b) => b.amount - a.amount)
           .slice(0, 5)
 
+        // Hotel nights calculation
+        let totalHotelNights = 0
+        const hotelNightsByVendorMap: { [key: string]: { nights: number; amount: number; bookings: number } } = {}
+        
+        filteredSales.forEach((sale: any) => {
+          if (sale.product_type === "Hotel") {
+            // Always recalculate nights using the new formula: (rooms × nights)
+            let nights = 0
+            if (sale.checkin_date && sale.checkout_date) {
+              const checkin = new Date(sale.checkin_date)
+              const checkout = new Date(sale.checkout_date)
+              const daysDiff = Math.ceil((checkout.getTime() - checkin.getTime()) / (1000 * 60 * 60 * 24))
+              const rooms = sale.number_of_rooms || 1
+              nights = daysDiff > 0 ? daysDiff * rooms : 0
+              
+              // Log for debugging - remove this later
+              console.log(`Hotel ${sale.vendor}: ${rooms} rooms × ${daysDiff} days = ${nights} total nights`)
+            } else if (sale.nights) {
+              // Fallback to stored value only if dates are not available
+              nights = sale.nights
+            }
+            
+            if (nights > 0) {
+              totalHotelNights += nights
+              const vendor = sale.vendor || "Unknown Vendor"
+              if (!hotelNightsByVendorMap[vendor]) {
+                hotelNightsByVendorMap[vendor] = { nights: 0, amount: 0, bookings: 0 }
+              }
+              hotelNightsByVendorMap[vendor].nights += nights
+              hotelNightsByVendorMap[vendor].amount += sale.sale_amount || 0
+              hotelNightsByVendorMap[vendor].bookings += 1
+            }
+          }
+        })
+
+        const hotelNightsByVendor = Object.entries(hotelNightsByVendorMap)
+          .map(([vendor, data]) => ({ vendor, ...data }))
+          .sort((a, b) => b.nights - a.nights)
+
         setReportData({
           sales: filteredSales,
           totalSales,
@@ -356,6 +395,8 @@ export default function ReportsPage() {
           averageSaleValue,
           totalProfit,
           profitMargin,
+          totalHotelNights: totalHotelNights > 0 ? totalHotelNights : undefined,
+          hotelNightsByVendor: hotelNightsByVendor.length > 0 ? hotelNightsByVendor : undefined,
         })
 
       } else if (filters.reportType === "profit-loss") {
