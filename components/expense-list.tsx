@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Edit, Trash2, Search, Eye } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog"
 import type { Expense, ExpenseCategory } from "@/lib/types"
+import { getProxyUrl } from "@/lib/cdn-client"
 
 
 interface ExpenseListProps {
@@ -204,16 +205,19 @@ export function ExpenseList({ expenses, categories, onEdit, onDelete }: ExpenseL
                   <div className="flex flex-col gap-1 border-b pb-2 last:border-b-0">
                     <span className="font-semibold text-gray-700 capitalize text-xs tracking-wide">Attachments</span>
                     <div className="flex flex-wrap gap-2 mt-1">
-                      {viewExpense.attachment_urls.map((url: string, idx: number) => (
-                        <div key={url} className="flex flex-col items-center">
-                          {url.match(/\.(jpg|jpeg|png|gif)$/i) ? (
-                            <img src={url} alt={`Attachment ${idx+1}`} className="w-20 h-20 object-contain rounded border mb-1" />
-                          ) : (
-                            <a href={url} target="_blank" rel="noopener noreferrer" className="underline text-blue-600 mb-1">File {idx+1}</a>
-                          )}
-                          <a href={url} download className="text-xs text-blue-500 underline">Download</a>
-                        </div>
-                      ))}
+                      {viewExpense.attachment_urls.map((url: string, idx: number) => {
+                        const proxyUrl = getProxyUrl(url)
+                        return (
+                          <div key={url} className="flex flex-col items-center">
+                            {url.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i) ? (
+                              <img src={proxyUrl} alt={`Attachment ${idx+1}`} className="w-20 h-20 object-contain rounded border mb-1" />
+                            ) : (
+                              <a href={proxyUrl} target="_blank" rel="noopener noreferrer" className="underline text-blue-600 mb-1">File {idx+1}</a>
+                            )}
+                            <a href={proxyUrl} download className="text-xs text-blue-500 underline">Download</a>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}

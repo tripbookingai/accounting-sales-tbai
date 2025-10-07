@@ -12,19 +12,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { X, Plus, Upload } from "lucide-react"
+import { uploadFileViaAPI } from "@/lib/cdn-client"
+import { MAX_FILE_SIZE } from "@/lib/cdn-config"
+import { FileAttachmentList, FileUploadZone } from "@/components/file-attachment"
 import type { ExpenseCategory, Expense } from "@/lib/types"
 
-// Helper to upload file to local API
+// Helper to upload file via API to CDN
 async function uploadAttachment(file: File): Promise<string | null> {
-  const formData = new FormData();
-  formData.append('file', file);
-  const res = await fetch('/api/upload', {
-    method: 'POST',
-    body: formData,
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.url as string;
+  try {
+    const url = await uploadFileViaAPI(file, 'private', MAX_FILE_SIZE);
+    return url;
+  } catch (error) {
+    console.error('Upload failed:', error);
+    return null;
+  }
 }
 
 interface ExpenseFormProps {
@@ -108,6 +109,8 @@ export function ExpenseForm({ categories, onSubmit, onCancel, initialData }: Exp
   const [attachments, setAttachments] = useState<File[]>([])
   // For editing, store existing URLs
   const [existingAttachments, setExistingAttachments] = useState<string[]>(initialData?.attachment_urls || [])
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const suggestedTags = ["Project", "Department", "Client", "Reimbursed", "Internal", "External", "Team", "Marketing Channel"]
 
   const mainCategories = categories.filter((cat) => !cat.parent_id)
@@ -123,40 +126,53 @@ export function ExpenseForm({ categories, onSubmit, onCancel, initialData }: Exp
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Always get the authenticated user's UUID
-    const supabase = await import("@/lib/supabase/client").then(m => m.createClient());
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      alert("You must be logged in to create an expense.");
-      return;
+    setUploading(true)
+    setUploadError(null)
+    
+    try {
+      // Always get the authenticated user's UUID
+      const supabase = await import("@/lib/supabase/client").then(m => m.createClient());
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert("You must be logged in to create an expense.");
+        setUploading(false)
+        return;
+      }
+      const user_id = user.id;
+      
+      // Upload new files
+      let uploadedUrls: string[] = [];
+      for (const file of attachments) {
+        const url = await uploadAttachment(file);
+        if (url) uploadedUrls.push(url);
+      }
+      
+      // Combine with existing (if editing)
+      const allUrls = [...existingAttachments, ...uploadedUrls];
+      
+      const expenseData = {
+        user_id,
+        date: formData.date,
+        category_id: formData.category_id || null,
+        amount: Number.parseFloat(formData.amount),
+        currency: formData.currency,
+        paid_through: formData.paid_through as any,
+        tax_amount: Number.parseFloat(formData.tax_amount),
+        tax_percentage: Number.parseFloat(formData.tax_percentage),
+        vendor: formData.vendor || null,
+        reference_number: formData.reference_number || null,
+        notes: formData.notes || null,
+        customer_name: formData.customer_name || null,
+        attachment_urls: allUrls,
+        approval_status: formData.approval_status as any,
+        tags: formData.tags,
+      };
+      onSubmit(expenseData);
+    } catch (error) {
+      console.error('Error submitting expense:', error)
+      setUploadError(error instanceof Error ? error.message : 'Failed to submit expense')
+      setUploading(false)
     }
-    const user_id = user.id;
-    // Upload new files
-    let uploadedUrls: string[] = [];
-    for (const file of attachments) {
-      const url = await uploadAttachment(file);
-      if (url) uploadedUrls.push(url);
-    }
-    // Combine with existing (if editing)
-    const allUrls = [...existingAttachments, ...uploadedUrls];
-    const expenseData = {
-      user_id,
-      date: formData.date,
-      category_id: formData.category_id || null,
-      amount: Number.parseFloat(formData.amount),
-      currency: formData.currency,
-      paid_through: formData.paid_through as any,
-      tax_amount: Number.parseFloat(formData.tax_amount),
-      tax_percentage: Number.parseFloat(formData.tax_percentage),
-      vendor: formData.vendor || null,
-      reference_number: formData.reference_number || null,
-      notes: formData.notes || null,
-      customer_name: formData.customer_name || null,
-      attachment_urls: allUrls,
-      approval_status: formData.approval_status as any,
-      tags: formData.tags,
-    };
-    onSubmit(expenseData);
   }
 
   const addTag = () => {
@@ -393,43 +409,58 @@ export function ExpenseForm({ categories, onSubmit, onCancel, initialData }: Exp
           {/* File Upload */}
           <div className="space-y-2">
             <Label>Attachments</Label>
-            <input
-              type="file"
-              accept="image/*,application/pdf"
-              multiple
-              onChange={(e) => setAttachments(e.target.files ? Array.from(e.target.files) : [])}
-            />
-            {attachments.length > 0 && (
-              <div className="text-xs text-muted-foreground">
-                Selected: {attachments.map(f => f.name).join(', ')}
+            
+            {/* Existing attachments with view modal */}
+            {existingAttachments.length > 0 && (
+              <div className="mb-3">
+                <p className="text-xs text-muted-foreground mb-2">Current attachments:</p>
+                <FileAttachmentList
+                  urls={existingAttachments}
+                  onRemove={(url) => setExistingAttachments(existingAttachments.filter(u => u !== url))}
+                  showDelete={true}
+                  showDownload={true}
+                  showView={true}
+                />
               </div>
             )}
-            {/* Show existing attachments if editing */}
-            {existingAttachments.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {existingAttachments.map((url, idx) => (
-                  <div key={url} className="flex items-center gap-1 border rounded px-2 py-1 bg-gray-50">
-                    {url.match(/\.(jpg|jpeg|png|gif)$/i) ? (
-                      <img src={url} alt="Attachment" className="w-10 h-10 object-contain rounded" />
-                    ) : (
-                      <a href={url} target="_blank" rel="noopener noreferrer" className="underline text-blue-600">File {idx+1}</a>
-                    )}
-                    <button type="button" className="ml-1 text-red-500" onClick={() => setExistingAttachments(existingAttachments.filter(u => u !== url))}>
-                      &times;
-                    </button>
-                  </div>
-                ))}
+            
+            {/* New file upload zone */}
+            <FileUploadZone
+              onFilesSelected={(files) => setAttachments(files)}
+              accept="image/*,.pdf,application/pdf"
+              multiple={true}
+              maxSize={MAX_FILE_SIZE}
+            />
+            
+            {/* Selected files preview */}
+            {attachments.length > 0 && (
+              <div className="text-xs text-muted-foreground mt-2">
+                New files to upload: {attachments.map(f => f.name).join(', ')}
+              </div>
+            )}
+            
+            {/* Upload error */}
+            {uploadError && (
+              <div className="text-xs text-red-600 mt-2">
+                {uploadError}
               </div>
             )}
           </div>
 
           {/* Form Actions */}
           <div className="flex gap-4 pt-4">
-            <Button type="submit" className="flex-1">
-              {initialData ? "Update Expense" : "Add Expense"}
+            <Button type="submit" className="flex-1" disabled={uploading}>
+              {uploading ? (
+                <>
+                  <span className="mr-2">Uploading...</span>
+                  <span className="animate-spin">⏳</span>
+                </>
+              ) : (
+                initialData ? "Update Expense" : "Add Expense"
+              )}
             </Button>
             {onCancel && (
-              <Button type="button" variant="outline" onClick={onCancel}>
+              <Button type="button" variant="outline" onClick={onCancel} disabled={uploading}>
                 Cancel
               </Button>
             )}
