@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Edit, Trash2, Search, Eye } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog"
+import { useRouter } from "next/navigation"
 import type { Expense, ExpenseCategory } from "@/lib/types"
 import { getProxyUrl } from "@/lib/cdn-client"
 
@@ -25,7 +25,7 @@ export function ExpenseList({ expenses, categories, onEdit, onDelete }: ExpenseL
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [categoryFilter, setCategoryFilter] = useState("all")
-  const [viewExpense, setViewExpense] = useState<Expense | null>(null)
+  const router = useRouter()
 
   const filteredExpenses = expenses.filter((expense: Expense) => {
     const matchesSearch =
@@ -168,7 +168,7 @@ export function ExpenseList({ expenses, categories, onEdit, onDelete }: ExpenseL
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => setViewExpense(expense)} title="View">
+                        <Button size="sm" variant="outline" onClick={() => router.push(`/expenses/${expense.id}`)} title="View">
                           <Eye className="h-4 w-4" />
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => onEdit(expense)} title="Edit">
@@ -177,58 +177,7 @@ export function ExpenseList({ expenses, categories, onEdit, onDelete }: ExpenseL
                         <Button size="sm" variant="outline" onClick={() => onDelete(expense.id)} title="Delete">
                           <Trash2 className="h-4 w-4" />
                         </Button>
-      {/* View Expense Modal */}
-      <Dialog open={!!viewExpense} onOpenChange={() => setViewExpense(null)}>
-        <DialogContent className="max-w-2xl w-full max-h-[90vh] overflow-y-auto rounded-lg shadow-xl p-0">
-          <DialogHeader className="sticky top-0 z-10 bg-white p-6 border-b">
-            <DialogTitle>Expense Details</DialogTitle>
-          </DialogHeader>
-          {viewExpense && (
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
-                {Object.entries(viewExpense)
-                  .filter(([key, value]) =>
-                    value !== null && value !== undefined && value !== "" && value !== false && key !== "id" && key !== "user_id" && key !== "category_id" && key !== "attachment_urls"
-                  )
-                  .map(([key, value]) => (
-                    <div key={key} className="flex flex-col gap-1 border-b pb-2 last:border-b-0">
-                      <span className="font-semibold text-gray-700 capitalize text-xs tracking-wide">
-                        {key.replace(/_/g, ' ')}
-                      </span>
-                      <span className="text-base text-gray-900 break-all">
-                        {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}
-                      </span>
-                    </div>
-                  ))}
-                {/* Multiple Attachments preview/download */}
-                {Array.isArray(viewExpense.attachment_urls) && viewExpense.attachment_urls.length > 0 && (
-                  <div className="flex flex-col gap-1 border-b pb-2 last:border-b-0">
-                    <span className="font-semibold text-gray-700 capitalize text-xs tracking-wide">Attachments</span>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {viewExpense.attachment_urls.map((url: string, idx: number) => {
-                        const proxyUrl = getProxyUrl(url)
-                        return (
-                          <div key={url} className="flex flex-col items-center">
-                            {url.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i) ? (
-                              <img src={proxyUrl} alt={`Attachment ${idx+1}`} className="w-20 h-20 object-contain rounded border mb-1" />
-                            ) : (
-                              <a href={proxyUrl} target="_blank" rel="noopener noreferrer" className="underline text-blue-600 mb-1">File {idx+1}</a>
-                            )}
-                            <a href={proxyUrl} download className="text-xs text-blue-500 underline">Download</a>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          <DialogClose asChild>
-            <Button className="mt-4 w-full rounded-b-lg">Close</Button>
-          </DialogClose>
-        </DialogContent>
-      </Dialog>
+                      
                       </div>
                     </TableCell>
                   </TableRow>
