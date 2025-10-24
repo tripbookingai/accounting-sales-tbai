@@ -17,11 +17,18 @@ export default function ResetPasswordPage() {
   const [checking, setChecking] = useState(true)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
 
   useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    if (!mounted) return
+    
     // Extract token from URL hash and set the session
     const handlePasswordReset = async () => {
       console.log('Full URL:', window.location.href)
@@ -72,7 +79,7 @@ export default function ResetPasswordPage() {
     }
     
     handlePasswordReset()
-  }, [supabase.auth])
+  }, [supabase.auth, mounted])
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
