@@ -10,7 +10,12 @@ interface Params {
 
 export default async function SaleDetailPage({ params }: Params) {
   const supabase = await createClient()
-  const { data, error } = await supabase.from("sales").select("*").eq("id", params.id).single()
+  const { data, error } = await supabase
+    .from("sales_with_profiles")
+    .select("*")
+    .eq("id", params.id)
+    .single()
+    
   if (error) {
     return (
       <div className="container mx-auto p-6">
@@ -38,8 +43,18 @@ export default async function SaleDetailPage({ params }: Params) {
 
       <div className="bg-white rounded shadow p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
+          {/* Display creator info */}
+          {(sale.profile_full_name || sale.profile_email) && (
+            <div className="flex flex-col gap-1 border-b pb-2">
+              <span className="font-semibold text-gray-700 capitalize text-xs tracking-wide">Created By</span>
+              <span className="text-base text-gray-900">
+                {sale.profile_full_name || sale.profile_email}
+              </span>
+            </div>
+          )}
+          
           {Object.entries(sale)
-            .filter(([key, value]) => value !== null && value !== undefined && value !== "" && value !== false && key !== "id" && key !== "user_id" && key !== "customer_id")
+            .filter(([key, value]) => value !== null && value !== undefined && value !== "" && value !== false && key !== "id" && key !== "user_id" && key !== "customer_id" && key !== "profile_email" && key !== "profile_full_name")
             .map(([key, value]) => (
               <div key={key} className="flex flex-col gap-1 border-b pb-2 last:border-b-0">
                 <span className="font-semibold text-gray-700 capitalize text-xs tracking-wide">{key.replace(/_/g, ' ')}</span>

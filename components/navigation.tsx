@@ -46,6 +46,18 @@ export function Navigation() {
     { href: "/reports", label: "Reports", icon: FileText },
   ]
 
+  // Determine role: the admin account is the well-known email. All other
+  // authenticated users are treated as 'manager' and only see Sales.
+  // Read admin email from public env var (inlined at build time) with a safe
+  // fallback to the known admin address.
+  const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || "hello@tripbooking.ai"
+  const isAdmin = user?.email === adminEmail
+
+  // For managers (non-admin authenticated users) expose only the Sales item
+  const visibleNavItems = isAdmin
+    ? navItems
+    : navItems.filter((i) => i.href === "/sales")
+
   if (!user) return null
 
   return (
@@ -64,7 +76,7 @@ export function Navigation() {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon
               return (
                 <Link
@@ -105,7 +117,7 @@ export function Navigation() {
         {isMenuOpen && (
           <div className="md:hidden py-4 border-t border-border">
             <div className="space-y-2">
-              {navItems.map((item) => {
+              {visibleNavItems.map((item) => {
                 const Icon = item.icon
                 return (
                   <Link

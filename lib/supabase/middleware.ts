@@ -48,6 +48,11 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // Simple role mapping: the admin user is the hard-coded email
+  // All other authenticated users are treated as "manager"
+  const adminEmail = process.env.ADMIN_EMAIL || "hello@tripbooking.ai"
+  const isAdmin = !!user && user.email === adminEmail
+
   if (
     request.nextUrl.pathname !== "/" &&
     !user &&
@@ -58,6 +63,23 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = "/auth/login"
     return NextResponse.redirect(url)
+  }
+
+  // If user is authenticated but not admin (i.e. a manager), restrict
+  // their access to sales-related pages only. Managers should still be
+  // able to hit auth pages (login/logout) so we allow /auth/*.
+  if (user && !isAdmin) {
+    const pathname = request.nextUrl.pathname
+
+    const isAuthPath = pathname.startsWith("/auth") || pathname.startsWith("/login")
+    const isSalesPath = pathname === "/sales" || pathname.startsWith("/sales/")
+
+    if (!isAuthPath && !isSalesPath) {
+      // Redirect managers to the sales listing page
+      const url = request.nextUrl.clone()
+      url.pathname = "/sales"
+      return NextResponse.redirect(url)
+    }
   }
 
   return supabaseResponse

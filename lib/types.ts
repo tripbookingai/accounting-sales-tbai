@@ -77,6 +77,9 @@ export interface Sale {
   tags: string[]
   attachment_urls: string[] | null // Multiple attachments
 
+  // Profile join data (creator info) - flattened from the view
+  profile_email?: string | null
+  profile_full_name?: string | null
 
   // Product-specific fields
   vendor: string | null

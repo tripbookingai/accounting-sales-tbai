@@ -1,9 +1,23 @@
 import { createClient } from "@/lib/supabase/server"
 import type { Sale, Customer } from "@/lib/types"
 
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "hello@tripbooking.ai"
+
 export async function getSales(): Promise<Sale[]> {
   const supabase = await createClient()
-  const { data, error } = await supabase.from("sales").select("*").order("transaction_date", { ascending: false })
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error("User not authenticated")
+
+  // All users (admin + managers) see all sales records
+  // Read from the view that joins sales with profiles. This avoids relying on
+  // Supabase relationship names and works even when a direct FK is not present.
+  const { data, error } = await supabase
+    .from("sales_with_profiles")
+    .select("*")
+    .order("transaction_date", { ascending: false })
 
   if (error) throw error
   return data || []
@@ -16,7 +30,16 @@ export async function createSale(
   >,
 ): Promise<Sale> {
   const supabase = await createClient()
-  const { data, error } = await supabase.from("sales").insert(sale).select().single()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error("User not authenticated")
+
+  // Both admin and manager can create sales. Ensure record is tied to the creator.
+  const insertPayload = { ...sale, user_id: user.id }
+
+  const { data, error } = await supabase.from("sales").insert(insertPayload).select().single()
 
   if (error) throw error
   return data
@@ -24,11 +47,26 @@ export async function createSale(
 
 export async function updateSale(id: string, sale: Partial<Sale>): Promise<Sale> {
   const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error("User not authenticated")
+
+  const isAdmin = user.email === ADMIN_EMAIL
+  if (!isAdmin) throw new Error("Forbidden: only admin can update sales")
+
   const { data, error } = await supabase
     .from("sales")
     .update({ ...sale, updated_at: new Date().toISOString() })
     .eq("id", id)
-    .select()
+    .select(`
+      *,
+      profiles!sales_user_id_fkey (
+        email,
+        full_name
+      )
+    `)
     .single()
 
   if (error) throw error
@@ -37,6 +75,15 @@ export async function updateSale(id: string, sale: Partial<Sale>): Promise<Sale>
 
 export async function deleteSale(id: string): Promise<void> {
   const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) throw new Error("User not authenticated")
+
+  const isAdmin = user.email === ADMIN_EMAIL
+  if (!isAdmin) throw new Error("Forbidden: only admin can delete sales")
+
   const { error } = await supabase.from("sales").delete().eq("id", id)
 
   if (error) throw error

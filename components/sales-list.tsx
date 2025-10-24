@@ -150,6 +150,7 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
                 <TableHead>Product</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Vendor</TableHead>
+                <TableHead>Created By</TableHead>
                 <TableHead>Revenue</TableHead>
                 <TableHead>Transaction Fee</TableHead>
                 <TableHead>Net Profit</TableHead>
@@ -162,7 +163,7 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
             <TableBody>
               {filteredSales.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
                     No sales found matching your criteria
                   </TableCell>
                 </TableRow>
@@ -191,6 +192,14 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">{sale.vendor || "N/A"}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm">
+                        {(sale as any).profile_full_name || (sale as any).profile_email || "N/A"}
+                      </div>
+                      {(sale as any).profile_full_name && (sale as any).profile_email && (
+                        <div className="text-xs text-muted-foreground">{(sale as any).profile_email}</div>
+                      )}
                     </TableCell>
                     <TableCell className="font-medium">
                       ৳{sale.sale_amount.toLocaleString("en-BD", { minimumFractionDigits: 2 })}

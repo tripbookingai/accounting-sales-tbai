@@ -38,13 +38,16 @@ export default function SalesPage() {
     try {
       const supabase = createClient()
 
-      // Load sales
+      // Load sales with creator profile information (from view)
       const { data: salesData, error: salesError } = await supabase
-        .from("sales")
+        .from("sales_with_profiles")
         .select("*")
         .order("transaction_date", { ascending: false })
 
-      if (salesError) throw salesError
+      if (salesError) {
+        console.error("Sales error:", salesError)
+        throw salesError
+      }
       setSales(salesData || [])
 
       // Load customers
