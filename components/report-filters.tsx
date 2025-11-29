@@ -162,6 +162,7 @@ export function ReportFilters({ onFiltersChange, onGenerateReport, onExportRepor
                 <SelectContent>
                   <SelectItem value="all">All Products</SelectItem>
                   <SelectItem value="Air Ticket">Air Ticket</SelectItem>
+                    <SelectItem value="Ship Ticket">Ship Ticket</SelectItem>
                   <SelectItem value="Hotel">Hotel</SelectItem>
                   <SelectItem value="Tour Package">Tour Package</SelectItem>
                   <SelectItem value="Visa">Visa</SelectItem>

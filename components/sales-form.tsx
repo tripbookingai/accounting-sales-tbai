@@ -1,6 +1,6 @@
 type SalesFormState = {
   transaction_date: string
-  product_type: "Air Ticket" | "Hotel" | "Tour Package" | "Visa" | ""
+  product_type: "Air Ticket" | "Hotel" | "Tour Package" | "Visa" | "Ship Ticket" | ""
   trip_type: "one_way" | "round_trip" | ""
   departure_date: string
   return_date: string
@@ -44,6 +44,8 @@ type SalesFormState = {
   submission_date: string
   received_date: string
   visa_status: "Pending" | "Submitted" | "Approved" | "Rejected" | "Delivered" | ""
+  // Ship Ticket specific
+  commission_percent: string
 }
 
 "use client"
@@ -145,6 +147,9 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
     submission_date: initialData?.submission_date || "",
     received_date: initialData?.received_date || "",
     visa_status: initialData?.visa_status || "",
+    // Ship Ticket handled separately via shipSelections and commission percent
+    // shipSelections managed in component state below
+    commission_percent: initialData?.commission_percent?.toString() || "10",
   })
 
   // Auto-calculate due_amount when payment_status is Partial and amount_paid or sale_amount changes
@@ -155,6 +160,145 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
   // (move these back inside the useState object)
   // ...existing code...
   // ...existing code...
+
+  // Ship pricing table (BDT)
+  const shipPricing: Record<string, Record<string, { one_way: number; round_trip: number }>> = {
+    "MV KARNAFULY EXPRESS": {
+      "Lavender": { one_way: 1800, round_trip: 3500 },
+      "Marigold": { one_way: 1800, round_trip: 3500 },
+      "Open Deck": { one_way: 2100, round_trip: 4000 },
+      "Gladiolus Business Chair": { one_way: 2600, round_trip: 5000 },
+      "Lilac Lounge": { one_way: 2700, round_trip: 5300 },
+      "Chrysanthemum Lounge": { one_way: 2900, round_trip: 5600 },
+      "Single Cabin": { one_way: 3300, round_trip: 6500 },
+      "Twin Cabin": { one_way: 7000, round_trip: 13000 },
+      "VIP Cabin": { one_way: 8500, round_trip: 16000 },
+      "VVIP Cabin": { one_way: 10500, round_trip: 20000 },
+    },
+    "MV BARO-AWLIA": {
+      "Sun Deck Seat": { one_way: 1800, round_trip: 3500 },
+      "Main Deck Seat": { one_way: 1800, round_trip: 3500 },
+      "Panorama Business Chair": { one_way: 2100, round_trip: 4000 },
+      "Riviera Business Chair": { one_way: 2100, round_trip: 4000 },
+      "Mozarat Chair": { one_way: 2200, round_trip: 4300 },
+      "Bunker Bed": { one_way: 4100, round_trip: 8000 },
+      "Deluxe Cabin": { one_way: 7000, round_trip: 13000 },
+      "Family Bunker Cabin": { one_way: 8500, round_trip: 16000 },
+      "VIP Cabin": { one_way: 8500, round_trip: 16000 },
+      "VVIP Cabin": { one_way: 10500, round_trip: 20000 },
+    },
+  }
+
+  // Auto-calc ship seat price & total and optionally update sale_amount
+  // Ship selections: support multiple seat categories per sale
+  // Normalize initial ship selections from different shapes to ensure edit mode loads correctly
+  const normalizeShipSelection = (s: any) => ({
+    ship_type: s?.ship_type || s?.ship || s?.shipType || "",
+    seat_category: s?.seat_category || s?.seat || s?.category || s?.seat_category_name || "",
+    quantity: String(s?.quantity ?? s?.qty ?? s?.quantity_selected ?? 1),
+    // accept unit_price if present in the saved record
+    unit_price: s?.unit_price ?? s?.unitPrice ?? s?.price ?? null,
+  })
+
+  const initialShipSelectionsRaw = (() => {
+    const raw = initialData?.ship_selections
+    if (!raw) return []
+    try {
+      return typeof raw === 'string' ? JSON.parse(raw) : raw
+    } catch (err) {
+      return raw
+    }
+  })()
+
+  const [shipSelections, setShipSelections] = useState<{
+    ship_type: string
+    seat_category: string
+    quantity: string
+    unit_price?: number | null
+  }[]>(
+    (initialShipSelectionsRaw || []).map((s: any) => normalizeShipSelection(s)) || []
+  )
+
+  // Commission percent for ship ticket (default 10%)
+  const [commissionPercent, setCommissionPercent] = useState<string>(
+    initialData?.commission_percent?.toString() || "10"
+  )
+
+  // When user edits COGS manually, avoid auto-overwriting it from seat calculations
+  const [manualCogs, setManualCogs] = useState<boolean>(false)
+
+  // Temp inputs for adding a seat selection
+  const [tempShipType, setTempShipType] = useState<string>("")
+  const [tempSeatCategory, setTempSeatCategory] = useState<string>("")
+  const [tempQuantity, setTempQuantity] = useState<string>("1")
+
+  useEffect(() => {
+    if (formData.product_type === "Ship Ticket") {
+      let total = 0
+      shipSelections.forEach(sel => {
+        const ship = sel.ship_type
+        const cat = sel.seat_category
+        const qty = parseInt(sel.quantity) || 0
+        const pricing = shipPricing[ship] && shipPricing[ship][cat]
+        // prefer explicit unit_price from selection (saved with sale) so edit mode preserves exact values;
+        // otherwise fall back to shipPricing (one_way/round_trip)
+        const unitFromSel = typeof sel.unit_price === 'number' ? sel.unit_price : (sel.unit_price ? Number(sel.unit_price) : null)
+        const unit = unitFromSel ?? (pricing ? (formData.trip_type === "round_trip" ? pricing.round_trip : pricing.one_way) : 0)
+        total += unit * qty
+      })
+      const commission = parseFloat(commissionPercent || "0") || 0
+      // COGS is sale minus commission amount. commission is a percent of total sale.
+      const cogs = total - total * (commission / 100)
+      // Only update sale_amount/cogs when we actually have a calculated total (avoid clobbering values on transient state changes)
+      setFormData(prev => ({ ...prev, sale_amount: total > 0 ? total.toString() : prev.sale_amount, cogs: (total > 0 && !manualCogs) ? cogs.toString() : prev.cogs }))
+    }
+  }, [shipSelections, formData.product_type, formData.trip_type, commissionPercent])
+
+  // Sync ship selections and commission when initialData changes (edit mode)
+  useEffect(() => {
+    if (initialData && initialData.ship_selections) {
+      // parse if it's stored as a JSON string. Use try/catch to avoid blowing up on malformed strings.
+      let raw: any = initialData.ship_selections
+      if (typeof raw === 'string') {
+        try {
+          raw = JSON.parse(raw)
+        } catch (err) {
+          // If the stored value is a string of an array where each item is itself a JSON string,
+          // try to split and parse heuristically (covers some legacy encodings).
+          try {
+            const maybeArray = raw.trim()
+            if (maybeArray.startsWith('[') && maybeArray.endsWith(']')) {
+              const inner = maybeArray.slice(1, -1).trim()
+              // attempt split on '},{' boundaries safely
+              const parts = inner.length ? inner.split(/\},\s*\{/) : []
+              raw = parts.map((p: string) => {
+                const text = p.startsWith('{') ? p : '{' + p
+                const full = p.endsWith('}') ? text : text + '}'
+                try { return JSON.parse(full) } catch (_) { return null }
+              }).filter(Boolean)
+            }
+          } catch (_) {
+            console.warn('Failed to robustly parse initialData.ship_selections:', _)
+          }
+        }
+      }
+      // Ensure we map arrays of objects into normalized selections
+      const arr = Array.isArray(raw) ? raw : []
+      setShipSelections(arr.map((s: any) => ({
+        ship_type: s?.ship_type || s?.ship || s?.shipType || "",
+        seat_category: s?.seat_category || s?.seat || s?.category || s?.seat_category_name || "",
+        quantity: String(s?.quantity ?? s?.qty ?? s?.quantity_selected ?? 1),
+        unit_price: s?.unit_price ?? s?.unitPrice ?? s?.price ?? null,
+      })))
+    }
+    if (initialData && typeof initialData.commission_percent !== 'undefined') {
+      setCommissionPercent(String(initialData.commission_percent))
+    }
+    // If initialData provides cogs or sale_amount, populate formData (but don't override manual edits)
+    if (initialData) {
+      setFormData(prev => ({ ...prev, sale_amount: initialData.sale_amount != null ? String(initialData.sale_amount) : prev.sale_amount, cogs: prev.cogs && !manualCogs ? (initialData.cogs != null ? String(initialData.cogs) : prev.cogs) : prev.cogs }))
+    }
+  }, [initialData])
 
   // Auto-calculate nights for Hotel (rooms × nights based on check-in/out dates)
   useEffect(() => {
@@ -206,9 +350,9 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
     const feePercent = Number.parseFloat(formData.transaction_fee_percent) || 0
     const paymentReceived = Number.parseFloat(formData.payment_received) || 0
 
-    const feeAmount = saleAmount * (feePercent / 100)
-    const profit = saleAmount - cogs
-    const netProfit = saleAmount - cogs - feeAmount
+  const feeAmount = saleAmount * (feePercent / 100)
+  const profit = saleAmount - cogs
+  const netProfit = saleAmount - cogs - feeAmount
     const margin = saleAmount > 0 ? (profit / saleAmount) * 100 : 0
     const netMargin = saleAmount > 0 ? (netProfit / saleAmount) * 100 : 0
     const balance = saleAmount - paymentReceived
@@ -313,13 +457,13 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
       transaction_date: formData.transaction_date,
       product_type: formData.product_type as any,
       trip_type:
-        formData.product_type === "Air Ticket"
+        formData.product_type === "Air Ticket" || formData.product_type === "Ship Ticket"
           ? (formData.trip_type === "one_way" || formData.trip_type === "round_trip"
               ? formData.trip_type
               : null)
           : null,
-      departure_date: formData.product_type === "Air Ticket" ? formData.departure_date : null,
-      return_date: formData.product_type === "Air Ticket" && formData.trip_type === "round_trip" ? formData.return_date : null,
+      departure_date: formData.product_type === "Air Ticket" || formData.product_type === "Ship Ticket" ? formData.departure_date : null,
+      return_date: (formData.product_type === "Air Ticket" || formData.product_type === "Ship Ticket") && formData.trip_type === "round_trip" ? formData.return_date : null,
       customer_id: customer.id,
       customer_name: formData.customer_name,
       customer_phone: formData.customer_phone || null,
@@ -345,9 +489,22 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
 
       // Air Ticket
       flight_route: formData.product_type === "Air Ticket" ? formData.flight_route || null : null,
-      number_of_passengers:
-        formData.product_type === "Air Ticket" ? Number.parseInt(formData.number_of_passengers) || null : null,
       travel_date: formData.product_type === "Air Ticket" ? formData.travel_date || null : null,
+
+  // Ship Ticket
+  ship_selections: formData.product_type === "Ship Ticket" ? shipSelections.map(s => ({
+    ship_type: s.ship_type,
+    seat_category: s.seat_category,
+    unit_price: typeof s.unit_price === 'number' ? s.unit_price : (s.unit_price ? Number(s.unit_price) : (shipPricing[s.ship_type]?.[s.seat_category] ? (formData.trip_type === "round_trip" ? shipPricing[s.ship_type][s.seat_category].round_trip : shipPricing[s.ship_type][s.seat_category].one_way) : 0)),
+    quantity: Number.parseInt(s.quantity) || 0
+  })) : null,
+  commission_percent: formData.product_type === "Ship Ticket" ? Number.parseFloat(commissionPercent || "0") || null : null,
+
+      // Number of passengers for Air or Ship tickets
+      number_of_passengers:
+        formData.product_type === "Air Ticket" || formData.product_type === "Ship Ticket"
+          ? Number.parseInt(formData.number_of_passengers) || null
+          : null,
 
       // Hotel
       location: formData.product_type === "Hotel" ? formData.location || null : null,
@@ -397,6 +554,93 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
       alert("Error processing customer information. Please try again.")
       setUploading(false)
     }
+  }
+
+  // (debug helper removed)
+
+  // Try to load initial ship selections (used when parsing may have failed earlier)
+  const tryLoadInitialShipSelections = () => {
+    try {
+      // Re-run robust parsing on the raw initialData.ship_selections value
+      let raw: any = initialData?.ship_selections
+      if (!raw) {
+        alert('No initial ship selections found on this sale.')
+        return
+      }
+      if (typeof raw === 'string') {
+        try { raw = JSON.parse(raw) } catch (err) {
+          // attempt heuristic split parse (legacy encodings)
+          try {
+            const maybeArray = raw.trim()
+            if (maybeArray.startsWith('[') && maybeArray.endsWith(']')) {
+              const inner = maybeArray.slice(1, -1).trim()
+              const parts = inner.length ? inner.split(/\},\s*\{/) : []
+              raw = parts.map((p: string) => {
+                const text = p.startsWith('{') ? p : '{' + p
+                const full = p.endsWith('}') ? text : text + '}'
+                try { return JSON.parse(full) } catch (_) { return null }
+              }).filter(Boolean)
+            }
+          } catch (_) {
+            console.warn('Failed to robustly parse initialData.ship_selections in tryLoadInitialShipSelections:', _)
+          }
+        }
+      }
+
+      const arr = Array.isArray(raw) ? raw.map((s: any) => normalizeShipSelection(s)) : []
+      if (!arr || arr.length === 0) {
+        alert('No initial ship selections found or failed to parse.')
+        return
+      }
+      setShipSelections(arr)
+      // Recalculate totals after loading
+      recalcFromShipSelections(arr)
+    } catch (err) {
+      console.warn('Failed to load initial ship selections:', err)
+      alert('Failed to load initial ship selections. See console for details.')
+    }
+  }
+
+  // Auto-attempt load if initialData exists but shipSelections remained empty after initial sync
+  useEffect(() => {
+    if (initialData && initialData.ship_selections && shipSelections.length === 0) {
+      // try once to load selections automatically
+      tryLoadInitialShipSelections()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialData])
+
+  // Recalculate sale_amount and cogs from current (or provided) selections
+  const recalcFromShipSelections = (providedSelections?: any[]) => {
+    const selections = (providedSelections && providedSelections.length) ? providedSelections : shipSelections
+    if (!selections || selections.length === 0) {
+      alert('No ship selections available to recalculate.')
+      return
+    }
+
+    // Ensure each selection has a numeric unit_price (fall back to pricing table)
+    const normalized = selections.map((s: any) => {
+      const sel = normalizeShipSelection(s)
+      const pricing = shipPricing[sel.ship_type] && shipPricing[sel.ship_type][sel.seat_category]
+      const unit = typeof sel.unit_price === 'number' ? sel.unit_price : (pricing ? (formData.trip_type === "round_trip" ? pricing.round_trip : pricing.one_way) : 0)
+      return { ...sel, unit_price: unit, quantity: String(sel.quantity || '1') }
+    })
+
+    setShipSelections(normalized)
+
+    let total = 0
+    normalized.forEach((s: any) => {
+      const qty = parseInt(s.quantity) || 0
+      const unit = Number(s.unit_price) || 0
+      total += unit * qty
+    })
+
+    const commission = parseFloat(commissionPercent || '0') || 0
+    const cogs = total - total * (commission / 100)
+
+    setFormData(prev => ({ ...prev, sale_amount: total > 0 ? total.toString() : prev.sale_amount, cogs: total > 0 ? cogs.toString() : prev.cogs }))
+    // allow auto-calculation after user forces a recalc
+    setManualCogs(false)
   }
 
   const addTag = () => {
@@ -478,6 +722,204 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
               </div>
             )}
           </>
+        )
+
+      case "Ship Ticket":
+        return (
+          <div className="col-span-1 md:col-span-2 lg:col-span-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row md:flex-row items-end gap-8 relative z-10">
+                  <div className="space-y-3">
+                    <Label className="block mb-2" htmlFor="ship-type-temp">Ship</Label>
+                    <select
+                      id="ship-type-temp"
+                      className="w-full sm:w-56 md:w-64 border rounded px-4 py-2.5"
+                      value={tempShipType}
+                      onChange={e => { setTempShipType(e.target.value); setTempSeatCategory("") }}
+                    >
+                      <option value="">Select ship</option>
+                      {Object.keys(shipPricing).map(ship => (
+                        <option key={ship} value={ship}>{ship}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label className="block mb-2" htmlFor="seat-category-temp">Seat / Category</Label>
+                    <select
+                      id="seat-category-temp"
+                      className="w-full sm:w-56 md:w-64 border rounded px-4 py-2.5"
+                      value={tempSeatCategory}
+                      onChange={e => setTempSeatCategory(e.target.value)}
+                      disabled={!tempShipType}
+                    >
+                      <option value="">Select category</option>
+                      {tempShipType && Object.keys(shipPricing[tempShipType] || {}).map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label className="block mb-2" htmlFor="quantity-temp">Quantity</Label>
+                    <Input
+                      id="quantity-temp"
+                      type="number"
+                      min={1}
+                      className="w-24"
+                      value={tempQuantity}
+                      onChange={e => setTempQuantity(e.target.value)}
+                      // ensure input stays interactive even if overlays exist
+                      tabIndex={0}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex mt-3 md:justify-start">
+                  <Button type="button" className="w-full sm:w-auto px-6 py-3" onClick={() => {
+                    if (!tempShipType || !tempSeatCategory || !(parseInt(tempQuantity) > 0)) return
+                    // compute unit price from pricing table for current trip_type and store it on selection
+                    const pricing = shipPricing[tempShipType] && shipPricing[tempShipType][tempSeatCategory]
+                    const unitPrice = pricing ? (formData.trip_type === "round_trip" ? pricing.round_trip : pricing.one_way) : 0
+                    setShipSelections(prev => [...prev, { ship_type: tempShipType, seat_category: tempSeatCategory, quantity: tempQuantity, unit_price: unitPrice }])
+                    setTempSeatCategory("")
+                    setTempQuantity("1")
+                  }}>Add Seat</Button>
+                </div>
+
+                {/* Trip/date and totals grouped in a clear panel to improve spacing and responsiveness */}
+                <div className="mt-6 p-4 border rounded bg-white shadow-sm w-full min-w-0">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 w-full">
+                    <div className="space-y-2">
+                      <Label htmlFor="trip-type-ship">Trip Type</Label>
+                      <select
+                        id="trip-type-ship"
+                        className="w-full border rounded px-3 py-2"
+                        value={formData.trip_type}
+                        onChange={e => setFormData(prev => ({ ...prev, trip_type: e.target.value as "one_way" | "round_trip" }))}
+                      >
+                        <option value="one_way">One Way</option>
+                        <option value="round_trip">Round Trip</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="departure-date-ship">Departure Date</Label>
+                      <Input
+                        id="departure-date-ship"
+                        type="date"
+                        className="w-full"
+                        value={formData.departure_date}
+                        onChange={e => setFormData(prev => ({ ...prev, departure_date: e.target.value }))}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="return-date-ship">Return Date</Label>
+                      <Input
+                        id="return-date-ship"
+                        type="date"
+                        className="w-full"
+                        value={formData.return_date}
+                        onChange={e => setFormData(prev => ({ ...prev, return_date: e.target.value }))}
+                        disabled={formData.trip_type !== "round_trip"}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 mt-4 items-end w-full">
+                    <div className="space-y-2">
+                      <Label htmlFor="ship-total">Total Price</Label>
+                      <div className="p-2 rounded border text-sm font-medium bg-gray-50 w-full">৳{(parseFloat(formData.sale_amount) || 0).toLocaleString('en-BD', { minimumFractionDigits: 2 })}</div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="commission-percent">Commission % (COGS)</Label>
+                      <Input id="commission-percent" type="number" min="0" max="100" className="w-full" value={commissionPercent} onChange={e => { setCommissionPercent(e.target.value); setManualCogs(false) }} />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>COGS (Calculated)</Label>
+                      <div className="p-2 rounded border text-sm font-medium bg-gray-50 w-full">৳{(parseFloat(formData.cogs) || 0).toLocaleString('en-BD', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-0 md:mt-4 lg:mt-6 md:row-start-2">
+                {/* If initialData had selections but parsing resulted in an empty array, show a warning and allow user to try loading them or force a recalc */}
+                {initialData?.ship_selections && shipSelections.length === 0 && (
+                  <div className="p-3 mb-4 rounded border border-yellow-200 bg-yellow-50">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="text-sm text-yellow-800">Saved ship selections were detected for this sale but could not be loaded automatically.</div>
+                      <div className="flex items-center gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={tryLoadInitialShipSelections}>Try load selections</Button>
+                        <Button type="button" size="sm" onClick={() => recalcFromShipSelections()}>Recalculate from seats</Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {shipSelections.length > 0 && (
+                  <div className="space-y-4">
+                    <Label className="block mb-2">Selected Seats</Label>
+                    <div className="space-y-4">
+                      {shipSelections.map((sel, idx) => {
+                        const pricing = shipPricing[sel.ship_type] && shipPricing[sel.ship_type][sel.seat_category]
+                        // prefer explicit unit_price stored on the selection (edit-mode fidelity), otherwise fall back to pricing table
+                        const unit = typeof sel.unit_price === 'number' ? sel.unit_price : (pricing ? (formData.trip_type === "round_trip" ? pricing.round_trip : pricing.one_way) : 0)
+                        const qty = parseInt(sel.quantity) || 0
+                        const lineTotal = unit * qty
+                        return (
+                          <div key={`${sel.ship_type}-${sel.seat_category}-${idx}`} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 border rounded w-full bg-white">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium truncate">{sel.ship_type} — {sel.seat_category}</div>
+                                      <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
+                                      <div className="flex items-center gap-2">
+                                        <label className="text-xs">Qty</label>
+                                        <Input
+                                          type="number"
+                                          min={1}
+                                          className="w-20"
+                                          value={String(qty)}
+                                          onChange={(e) => {
+                                            const newQty = e.target.value.replace(/^0+/, '') || '0'
+                                            setShipSelections(prev => prev.map((s, i) => i === idx ? { ...s, quantity: newQty } : s))
+                                          }}
+                                        />
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <label className="text-xs">Unit</label>
+                                        <Input
+                                          type="number"
+                                          min={0}
+                                          className="w-28"
+                                          value={String(sel.unit_price ?? unit)}
+                                          onChange={(e) => {
+                                            const v = e.target.value
+                                            const num = v === '' ? null : Number(v)
+                                            setShipSelections(prev => prev.map((s, i) => i === idx ? { ...s, unit_price: num } : s))
+                                          }}
+                                        />
+                                      </div>
+                                      <div>• Total: ৳{lineTotal.toLocaleString('en-BD')}</div>
+                                    </div>
+                            </div>
+                            <div className="mt-2 sm:mt-0">
+                              <Button type="button" variant="outline" onClick={() => setShipSelections(prev => prev.filter((_, i) => i !== idx))}>Remove</Button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+        {/* moved trip/date and totals into left column to prevent overlap */}
+      </div>
         )
 
       case "Hotel":
@@ -721,6 +1163,9 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
               />
             </div>
 
+            {/* spacer for controls */}
+            <div className="space-y-2 flex items-end" />
+
             <div className="space-y-2">
               <Label htmlFor="product-type">Product Type *</Label>
               <Select
@@ -728,10 +1173,14 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
                 onValueChange={(value) =>
                   setFormData((prev) => ({
                     ...prev,
-                    product_type: value as "Air Ticket" | "Hotel" | "Tour Package" | "",
-                    trip_type: value === "Air Ticket" ? prev.trip_type || "one_way" : "",
-                    departure_date: value === "Air Ticket" ? prev.departure_date : "",
-                    return_date: value === "Air Ticket" ? prev.return_date : "",
+                    product_type: value as "Air Ticket" | "Hotel" | "Tour Package" | "Visa" | "Ship Ticket" | "",
+                    // default trip_type for ticket-like products
+                    trip_type: value === "Air Ticket" || value === "Ship Ticket" ? prev.trip_type || "one_way" : "",
+                    // keep departure/return for ticket products, clear for others
+                    departure_date: value === "Air Ticket" || value === "Ship Ticket" ? prev.departure_date : "",
+                    return_date: value === "Air Ticket" || value === "Ship Ticket" ? prev.return_date : "",
+                    // Prefill vendor for Ship Ticket
+                    vendor: value === "Ship Ticket" ? "Karnafuly Cruiseline" : prev.vendor,
                   }))
                 }
               >
@@ -740,6 +1189,7 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Air Ticket">Air Ticket</SelectItem>
+                  <SelectItem value="Ship Ticket">Ship Ticket</SelectItem>
                   <SelectItem value="Hotel">Hotel</SelectItem>
                   <SelectItem value="Tour Package">Tour Package</SelectItem>
                   <SelectItem value="Visa">Visa</SelectItem>
@@ -843,6 +1293,7 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
                 placeholder="Enter vendor name"
                 value={formData.vendor}
                 onChange={(e) => setFormData((prev) => ({ ...prev, vendor: e.target.value }))}
+                readOnly={formData.product_type === "Ship Ticket"}
               />
             </div>
 
@@ -882,7 +1333,24 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
                 min="0"
                 placeholder="0.00"
                 value={formData.cogs}
-                onChange={(e) => setFormData((prev) => ({ ...prev, cogs: e.target.value }))}
+                onChange={(e) => {
+                  const val = e.target.value
+                  // Use functional update to read the latest sale_amount when computing commission percent
+                  setFormData((prev) => {
+                    const sale = parseFloat(prev.sale_amount) || 0
+                    const cogsNum = parseFloat(val) || 0
+                    // commission percent should represent the percentage taken from sale,
+                    // so commission% = ((sale - cogs) / sale) * 100
+                    const pct = sale > 0 ? ((sale - cogsNum) / sale) * 100 : 0
+                    // update commissionPercent only when this is a Ship Ticket
+                    if (prev.product_type === "Ship Ticket") {
+                      setCommissionPercent(isFinite(pct) ? String(Number(pct.toFixed(2))) : "0")
+                    }
+                    return { ...prev, cogs: val }
+                  })
+                  // mark that user manually edited COGS so auto-calculation won't overwrite it
+                  setManualCogs(true)
+                }}
                 required
               />
             </div>

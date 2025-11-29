@@ -22,7 +22,7 @@ create table if not exists public.sales (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   transaction_date date not null default current_date,
-  product_type text not null check (product_type in ('Air Ticket', 'Hotel', 'Tour Package')),
+  product_type text not null check (product_type in ('Air Ticket', 'Hotel', 'Tour Package', 'Visa', 'Ship Ticket')),
   customer_id uuid references public.customers(id),
   customer_name text not null,
   customer_phone text,
@@ -48,6 +48,10 @@ create table if not exists public.sales (
   -- Product-specific fields
   vendor text,
   booking_id text,
+
+  -- Ship Ticket specific
+  ship_selections jsonb, -- array of { ship_type, seat_category, unit_price, quantity }
+  commission_percent numeric(5,2) default 10.00,
   
   -- Air Ticket specific
   flight_route text, -- From → To

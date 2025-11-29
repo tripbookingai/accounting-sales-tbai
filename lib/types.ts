@@ -55,7 +55,7 @@ export interface Sale {
   id: string
   user_id: string
   transaction_date: string
-  product_type: "Air Ticket" | "Hotel" | "Tour Package" | "Visa"
+  product_type: "Air Ticket" | "Hotel" | "Tour Package" | "Visa" | "Ship Ticket"
   customer_id: string | null
   customer_name: string
   customer_phone: string | null
@@ -118,6 +118,15 @@ export interface Sale {
   submission_date: string | null
   received_date: string | null
   visa_status: "Pending" | "Submitted" | "Approved" | "Rejected" | "Delivered" | null
+
+  // Ship Ticket specific
+  ship_selections?: {
+    ship_type: string
+    seat_category: string
+    unit_price: number
+    quantity: number
+  }[] | null
+  commission_percent?: number | null
 
   created_at: string
   updated_at: string

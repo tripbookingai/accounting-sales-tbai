@@ -169,10 +169,18 @@ export default function HomePage() {
       }))
 
       // --- Sales by Product Type ---
+      const normalizeProductType = (p: string | undefined) => {
+        if (!p) return "Other"
+        const s = String(p).toLowerCase().trim()
+        if (s.includes("ship")) return "Ship Ticket"
+        // add other normalizations if needed in future
+        return p
+      }
+
       const productTotals: Record<string, number> = {}
       sales?.forEach((sale) => {
-        if (sale.product_type)
-          productTotals[sale.product_type] = (productTotals[sale.product_type] || 0) + (Number(sale.sale_amount) || 0)
+        const prod = normalizeProductType(sale.product_type)
+        productTotals[prod] = (productTotals[prod] || 0) + (Number(sale.sale_amount) || 0)
       })
       const salesByProductChart = Object.entries(productTotals).map(([name, value]) => ({
         name,
@@ -256,7 +264,7 @@ export default function HomePage() {
       sales?.forEach((sale) => {
         const d = new Date(sale.transaction_date)
         const month = d.toLocaleDateString("en-US", { month: "short" })
-        const prod = sale.product_type || "Other"
+        const prod = normalizeProductType(sale.product_type)
         if (!productTrends[prod]) productTrends[prod] = {}
         productTrends[prod][month] = (productTrends[prod][month] || 0) + (Number(sale.sale_amount) || 0)
       })
