@@ -60,6 +60,8 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
         return "bg-purple-100 text-purple-800"
       case "Tour Package":
         return "bg-green-100 text-green-800"
+      case "Ship Ticket":
+        return "bg-teal-100 text-teal-800"
       default:
         return "bg-gray-100 text-gray-800"
     }
@@ -78,7 +80,7 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
           <div>
             <CardTitle className="text-2xl font-bold">Sales Records</CardTitle>
-            <CardDescription>Track air tickets, hotels, and tour package sales</CardDescription>
+            <CardDescription>Track air tickets, hotels, tour packages, and ship tickets</CardDescription>
           </div>
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
@@ -126,6 +128,7 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
               <SelectItem value="Air Ticket">Air Ticket</SelectItem>
               <SelectItem value="Hotel">Hotel</SelectItem>
               <SelectItem value="Tour Package">Tour Package</SelectItem>
+              <SelectItem value="Ship Ticket">Ship Ticket</SelectItem>
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
