@@ -25,6 +25,7 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [productFilter, setProductFilter] = useState("all")
+  const [hotelPaymentFilter, setHotelPaymentFilter] = useState("all")
   const router = useRouter()
 
   const filteredSales = sales.filter((sale: Sale) => {
@@ -37,8 +38,12 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
 
     const matchesStatus = statusFilter === "all" || sale.payment_status === statusFilter
     const matchesProduct = productFilter === "all" || sale.product_type === productFilter
+    const matchesHotelPayment =
+      hotelPaymentFilter === "all" ||
+      (hotelPaymentFilter === "due" && sale.product_type === "Hotel" && !(sale as any).hotel_paid) ||
+      (hotelPaymentFilter === "paid" && sale.product_type === "Hotel" && !!(sale as any).hotel_paid)
 
-    return matchesSearch && matchesStatus && matchesProduct
+    return matchesSearch && matchesStatus && matchesProduct && matchesHotelPayment
   })
 
   const getStatusColor = (status: string) => {
@@ -82,7 +87,7 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
             <CardTitle className="text-2xl font-bold">Sales Records</CardTitle>
             <CardDescription>Track air tickets, hotels, tour packages, and ship tickets</CardDescription>
           </div>
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-4 gap-4 text-center">
             <div>
               <p className="text-sm text-muted-foreground">Total Revenue</p>
               <p className="text-xl font-bold text-primary">
@@ -103,6 +108,10 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
               <p className={`text-xl font-bold ${averageMargin >= 0 ? "text-green-600" : "text-red-600"}`}>
                 {averageMargin.toFixed(1)}%
               </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Hotel Payments Due</p>
+              <p className="text-xl font-bold text-rose-600">{sales.filter(s => s.product_type === "Hotel" && !(s as any).hotel_paid).length}</p>
             </div>
           </div>
         </div>
@@ -129,6 +138,16 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
               <SelectItem value="Hotel">Hotel</SelectItem>
               <SelectItem value="Tour Package">Tour Package</SelectItem>
               <SelectItem value="Ship Ticket">Ship Ticket</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={hotelPaymentFilter} onValueChange={setHotelPaymentFilter}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="Hotel Payment" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="due">Hotel Payment Due</SelectItem>
+              <SelectItem value="paid">Paid to Hotel</SelectItem>
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -180,6 +199,15 @@ export function SalesList({ sales, customers, onEdit, onDelete }: SalesListProps
                       <Badge className={`text-xs ${getProductColor(sale.product_type)}`}>{sale.product_type}</Badge>
                       {sale.booking_id && (
                         <div className="text-xs text-muted-foreground mt-1">ID: {sale.booking_id}</div>
+                      )}
+                      {sale.product_type === "Hotel" && (
+                        <div className="text-xs mt-1">
+                          {(sale as any).hotel_paid ? (
+                            <span className="text-green-600">Paid to hotel</span>
+                          ) : (
+                            <span className="text-orange-600">Due to hotel</span>
+                          )}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>

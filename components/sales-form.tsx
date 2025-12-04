@@ -28,6 +28,7 @@ type SalesFormState = {
   checkout_date: string
   booking_confirmation: string
   nights: string
+  hotel_paid: boolean
   number_of_rooms: string
   package_name: string
   destinations: string
@@ -61,6 +62,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { X, Plus } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
 import { uploadFileViaAPI } from "@/lib/cdn-client"
 import { MAX_FILE_SIZE } from "@/lib/cdn-config"
 import { FileAttachmentList, FileUploadZone } from "@/components/file-attachment"
@@ -130,7 +132,8 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
     checkin_date: initialData?.checkin_date || "",
     checkout_date: initialData?.checkout_date || "",
     booking_confirmation: initialData?.booking_confirmation || "",
-    nights: initialData?.nights?.toString() || "",
+  nights: initialData?.nights?.toString() || "",
+  hotel_paid: initialData?.hotel_paid ?? false,
     number_of_rooms: initialData?.number_of_rooms?.toString() || "1",
     package_name: initialData?.package_name || "",
     destinations: initialData?.destinations || "",
@@ -513,6 +516,7 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
       nights: formData.product_type === "Hotel" ? Number.parseInt(formData.nights) || null : null,
       number_of_rooms: formData.product_type === "Hotel" ? Number.parseInt(formData.number_of_rooms) || null : null,
       booking_confirmation: formData.product_type === "Hotel" ? formData.booking_confirmation || null : null,
+  hotel_paid: formData.product_type === "Hotel" ? !!formData.hotel_paid : null,
 
       // Tour Package
       package_name: formData.product_type === "Tour Package" ? formData.package_name || null : null,
@@ -981,6 +985,13 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
                 value={formData.booking_confirmation}
                 onChange={(e) => setFormData((prev) => ({ ...prev, booking_confirmation: e.target.value }))}
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={!!formData.hotel_paid}
+                onCheckedChange={(val) => setFormData((prev) => ({ ...prev, hotel_paid: !!val }))}
+              />
+              <Label className="mb-0">Paid to hotel</Label>
             </div>
           </>
         )

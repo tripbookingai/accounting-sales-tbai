@@ -127,6 +127,8 @@ export interface Sale {
     quantity: number
   }[] | null
   commission_percent?: number | null
+  // Hotel payment tracking
+  hotel_paid?: boolean | null
 
   created_at: string
   updated_at: string
