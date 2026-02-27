@@ -9,6 +9,35 @@ import type { Sale, Customer, Vendor } from "@/lib/types"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 
+// Fields we intentionally exclude from the diff (internal / join fields)
+const DIFF_EXCLUDE = new Set([
+  "id", "user_id", "created_at", "updated_at",
+  "updated_by", "updated_by_name",
+  "profile_email", "profile_full_name",
+  "updater_profile_email", "updater_profile_full_name",
+  "profit_loss", "profit_margin", "outstanding_balance",
+  "net_profit_loss", "net_profit_margin",
+])
+
+/** Build a { field: { from, to } } diff between the old record and new values */
+function buildDiff(
+  oldSale: Sale,
+  newSale: Record<string, unknown>,
+): Record<string, { from: unknown; to: unknown }> {
+  const diff: Record<string, { from: unknown; to: unknown }> = {}
+  const allKeys = new Set([...Object.keys(oldSale), ...Object.keys(newSale)])
+  for (const key of allKeys) {
+    if (DIFF_EXCLUDE.has(key)) continue
+    const oldVal = (oldSale as unknown as Record<string, unknown>)[key] ?? null
+    const newVal = newSale[key] ?? null
+    // Compare as JSON strings to handle arrays / objects correctly
+    if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+      diff[key] = { from: oldVal, to: newVal }
+    }
+  }
+  return diff
+}
+
 export default function SalesPage() {
   const [sales, setSales] = useState<Sale[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -83,17 +112,49 @@ export default function SalesPage() {
 
       // Customer ID should already be handled by the form using findOrCreateCustomerByPhone
       if (editingSale) {
-        // Update existing sale
-        const { data, error } = await supabase
-          .from("sales")
-          .update({ ...saleData, updated_at: new Date().toISOString() })
-          .eq("id", editingSale.id)
-          .select()
+        // Fetch updater's profile name for snapshot
+        const { data: updaterProfile } = await supabase
+          .from("profiles")
+          .select("full_name, email")
+          .eq("id", user.id)
           .single()
+        const updaterName = updaterProfile?.full_name || updaterProfile?.email || user.email || null
+
+        // Update existing sale – stamp updated_by + updated_by_name
+        const { error } = await supabase
+          .from("sales")
+          .update({
+            ...saleData,
+            updated_by: user.id,
+            updated_by_name: updaterName,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", editingSale.id)
 
         if (error) throw error
 
-        setSales((prev) => prev.map((sale) => (sale.id === editingSale.id ? data : sale)))
+        // Build field-level diff and write audit log entry
+        const diff = buildDiff(editingSale, saleData as Record<string, unknown>)
+        if (Object.keys(diff).length > 0) {
+          await supabase.from("sale_edit_logs").insert({
+            sale_id: editingSale.id,
+            edited_by: user.id,
+            edited_by_name: updaterName,
+            changes: diff,
+            edited_at: new Date().toISOString(),
+          })
+        }
+
+        // Re-fetch from the view so creator + updater profile fields are populated
+        const { data: refreshed, error: fetchError } = await supabase
+          .from("sales_with_profiles")
+          .select("*")
+          .eq("id", editingSale.id)
+          .single()
+
+        if (fetchError) throw fetchError
+
+        setSales((prev) => prev.map((sale) => (sale.id === editingSale.id ? refreshed : sale)))
       } else {
         // Create new sale
   const { data, error } = await supabase.from("sales").insert(saleData).select().single()

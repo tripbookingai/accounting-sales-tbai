@@ -1,211 +1,116 @@
 /**
- * CDN File Management API Client
- * Base URL: https://cdn.tripbooking.ai
- * 
- * This client handles file uploads, downloads, and deletions
- * using the TripBooking CDN service.
+ * File Management API Client (Client-side)
+ *
+ * Previously backed by the TripBooking CDN; now backed by AWS S3 via the
+ * Next.js /api/upload proxy route.
+ *
+ * The public API surface is unchanged so that all components
+ * (sales-form, expense-form, file-attachment, etc.) continue to work
+ * without modification.
  */
 
 import { MAX_FILE_SIZE, getFileSizeError } from './cdn-config'
 
-const CDN_BASE_URL = process.env.NEXT_PUBLIC_CDN_BASE_URL || 'https://cdn.tripbooking.ai'
-const CDN_API_KEY = process.env.CDN_API_KEY || ''
+// ---------------------------------------------------------------------------
+// Re-export size helpers (consumers import from here)
+// ---------------------------------------------------------------------------
+export { MAX_FILE_SIZE, getFileSizeError }
+
+// ---------------------------------------------------------------------------
+// Types (kept for backwards compatibility)
+// ---------------------------------------------------------------------------
 
 export interface UploadResponse {
   message: string
   filename: string
-  visibility: 'public' | 'private'
   url: string
+  key?: string
 }
 
 export interface DeleteResponse {
   message: string
 }
 
-export interface CDNError {
-  error: string
-  message?: string
-}
+// ---------------------------------------------------------------------------
+// URL helpers
+// ---------------------------------------------------------------------------
+
+const S3_BUCKET = process.env.NEXT_PUBLIC_AWS_S3_BUCKET_NAME || ''
+const S3_REGION = process.env.NEXT_PUBLIC_AWS_S3_REGION || 'us-east-1'
 
 /**
- * Upload a file to the CDN
- * @param file - The file to upload
- * @param visibility - Whether the file should be 'public' or 'private' (default: 'private')
- * @param maxSize - Maximum file size in bytes (default: from config)
- * @returns Upload response with the file URL
- */
-export async function uploadFile(
-  file: File,
-  visibility: 'public' | 'private' = 'private',
-  maxSize: number = MAX_FILE_SIZE
-): Promise<UploadResponse> {
-  if (!CDN_API_KEY) {
-    throw new Error('CDN API key is not configured')
-  }
-
-  // Validate file size before upload
-  if (file.size > maxSize) {
-    throw new Error(getFileSizeError(file.size))
-  }
-
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('visibility', visibility)
-
-  const response = await fetch(`${CDN_BASE_URL}/upload`, {
-    method: 'POST',
-    headers: {
-      'X-API-KEY': CDN_API_KEY,
-    },
-    body: formData,
-  })
-
-  if (!response.ok) {
-    // Handle specific error codes
-    if (response.status === 413) {
-      throw new Error(getFileSizeError(file.size) + ' The server rejected the upload. Please try a smaller file.')
-    }
-    
-    const error: CDNError = await response.json().catch(() => ({
-      error: 'Upload failed',
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }))
-    throw new Error(error.message || error.error || 'Failed to upload file')
-  }
-
-  return response.json()
-}
-
-/**
- * Download a file from the CDN
- * @param filename - The UUID filename to download
- * @param isPrivate - Whether the file is private (requires API key)
- * @returns Blob of the file
- */
-export async function downloadFile(
-  filename: string,
-  isPrivate: boolean = true
-): Promise<Blob> {
-  const headers: HeadersInit = {}
-  
-  if (isPrivate) {
-    if (!CDN_API_KEY) {
-      throw new Error('CDN API key is not configured')
-    }
-    headers['X-API-KEY'] = CDN_API_KEY
-  }
-
-  const response = await fetch(`${CDN_BASE_URL}/files/${filename}`, {
-    method: 'GET',
-    headers,
-  })
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error('Unauthorized: Invalid or missing API key')
-    }
-    if (response.status === 404) {
-      throw new Error('File not found')
-    }
-    throw new Error(`Failed to download file: HTTP ${response.status}`)
-  }
-
-  return response.blob()
-}
-
-/**
- * Delete a file from the CDN
- * @param filename - The UUID filename to delete
- * @returns Delete response
- */
-export async function deleteFile(filename: string): Promise<DeleteResponse> {
-  if (!CDN_API_KEY) {
-    throw new Error('CDN API key is not configured')
-  }
-
-  const response = await fetch(`${CDN_BASE_URL}/delete/${filename}`, {
-    method: 'DELETE',
-    headers: {
-      'X-API-KEY': CDN_API_KEY,
-    },
-  })
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error('Unauthorized: Invalid or missing API key')
-    }
-    if (response.status === 404) {
-      throw new Error('File not found')
-    }
-    const error: CDNError = await response.json().catch(() => ({
-      error: 'Delete failed',
-      message: `HTTP ${response.status}: ${response.statusText}`,
-    }))
-    throw new Error(error.message || error.error || 'Failed to delete file')
-  }
-
-  return response.json()
-}
-
-/**
- * Extract filename from a CDN URL
- * @param url - Full CDN URL
- * @returns Just the filename
+ * Extract the file key / last path segment from an S3 URL or raw key.
+ * Works with:
+ *   https://bucket.s3.region.amazonaws.com/attachments/uuid.pdf  → attachments/uuid.pdf
+ *   attachments/uuid.pdf                                         → attachments/uuid.pdf
  */
 export function extractFilename(url: string): string {
   try {
     const urlObj = new URL(url)
-    const pathname = urlObj.pathname
-    return pathname.split('/').pop() || ''
+    // Strip leading slash → gives us the full object key
+    return urlObj.pathname.replace(/^\//, '')
   } catch {
-    // If URL parsing fails, try simple string extraction
-    return url.split('/').pop() || ''
+    // Not a valid URL – treat as raw key/filename
+    return url
   }
 }
 
 /**
- * Get authenticated proxy URL for viewing/downloading private files
- * Converts CDN URL to local API proxy URL that handles authentication
- * @param cdnUrl - The full CDN URL
- * @returns Proxy URL through /api/upload endpoint
- */
-export function getProxyUrl(cdnUrl: string): string {
-  const filename = extractFilename(cdnUrl)
-  return `/api/upload?filename=${encodeURIComponent(filename)}`
-}
-
-/**
- * Check if a URL is a CDN URL
- * @param url - URL to check
- * @returns true if the URL is from the CDN
+ * Returns true when the URL points to an S3 object.
+ * Also returns true for legacy CDN URLs so old stored URLs keep working
+ * through the proxy route.
  */
 export function isCDNUrl(url: string): boolean {
-  return url.startsWith(CDN_BASE_URL) || url.includes('cdn.tripbooking.ai')
+  // S3 virtual-hosted style
+  if (url.includes('.s3.') && url.includes('.amazonaws.com')) return true
+  // S3 path style
+  if (url.includes('s3.amazonaws.com/')) return true
+  // Legacy CDN (still routed through proxy → S3 by key)
+  if (url.includes('cdn.tripbooking.ai')) return true
+  return false
 }
 
+/** Alias for isCDNUrl – use this in new code. */
+export const isStorageUrl = isCDNUrl
+
 /**
- * Get the full CDN URL for a filename
- * @param filename - The UUID filename
- * @returns Full CDN URL
+ * Build a proxy URL so private S3 objects can be viewed/downloaded
+ * through the Next.js API route without exposing credentials.
+ * Pass either the full S3 URL or the object key.
  */
-export function getCDNUrl(filename: string): string {
-  return `${CDN_BASE_URL}/files/${filename}`
+export function getProxyUrl(urlOrKey: string): string {
+  return `/api/upload?filename=${encodeURIComponent(urlOrKey)}`
 }
 
 /**
- * Client-side upload helper for use in components
- * This makes a request to the Next.js API route which then calls the CDN
- * @param file - The file to upload
- * @param visibility - Whether the file should be 'public' or 'private' (default: 'private')
- * @param maxSize - Maximum file size in bytes (default: from config)
- * @returns The CDN URL of the uploaded file
+ * Build the public S3 URL for an object key.
+ * Requires NEXT_PUBLIC_AWS_S3_BUCKET_NAME and NEXT_PUBLIC_AWS_S3_REGION to be set.
+ */
+export function getCDNUrl(key: string): string {
+  if (!S3_BUCKET) return key
+  return `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${key}`
+}
+
+// ---------------------------------------------------------------------------
+// Client-side upload via /api/upload proxy
+// ---------------------------------------------------------------------------
+
+/**
+ * Upload a file via the Next.js API route → AWS S3.
+ * Returns the S3 object URL to be stored in the database.
+ *
+ * @param file       The file to upload
+ * @param visibility Ignored (kept for API compatibility)
+ * @param maxSize    Maximum allowed file size in bytes
+ * @param folder     S3 folder path, e.g. "accounts-attachments/sales/session-123"
+ *                   Defaults to "accounts-attachments/" when not provided.
  */
 export async function uploadFileViaAPI(
   file: File,
   visibility: 'public' | 'private' = 'private',
-  maxSize: number = MAX_FILE_SIZE
+  maxSize: number = MAX_FILE_SIZE,
+  folder?: string
 ): Promise<string> {
-  // Validate file size before upload
   if (file.size > maxSize) {
     throw new Error(getFileSizeError(file.size))
   }
@@ -213,6 +118,9 @@ export async function uploadFileViaAPI(
   const formData = new FormData()
   formData.append('file', file)
   formData.append('visibility', visibility)
+  if (folder) {
+    formData.append('folder', folder)
+  }
 
   const response = await fetch('/api/upload', {
     method: 'POST',
@@ -220,14 +128,10 @@ export async function uploadFileViaAPI(
   })
 
   if (!response.ok) {
-    // Handle specific error codes
     if (response.status === 413) {
       throw new Error(getFileSizeError(file.size) + ' Please try a smaller file.')
     }
-
-    const error = await response.json().catch(() => ({
-      error: 'Upload failed',
-    }))
+    const error = await response.json().catch(() => ({ error: 'Upload failed' }))
     throw new Error(error.error || 'Failed to upload file')
   }
 
@@ -235,53 +139,80 @@ export async function uploadFileViaAPI(
   return data.url
 }
 
+// ---------------------------------------------------------------------------
+// Client-side delete via /api/upload proxy
+// ---------------------------------------------------------------------------
+
 /**
- * Client-side delete helper for use in components
- * This makes a request to the Next.js API route which then calls the CDN
+ * Delete a file via the Next.js API route → AWS S3.
+ * Accepts either a full S3 URL or an object key.
  */
-export async function deleteFileViaAPI(url: string): Promise<void> {
-  const filename = extractFilename(url)
-  
-  const response = await fetch(`/api/upload?filename=${encodeURIComponent(filename)}`, {
-    method: 'DELETE',
-  })
+export async function deleteFileViaAPI(urlOrKey: string): Promise<void> {
+  const response = await fetch(
+    `/api/upload?filename=${encodeURIComponent(urlOrKey)}`,
+    { method: 'DELETE' }
+  )
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({
-      error: 'Delete failed',
-    }))
+    const error = await response.json().catch(() => ({ error: 'Delete failed' }))
     throw new Error(error.error || 'Failed to delete file')
   }
 }
 
+// ---------------------------------------------------------------------------
+// Client-side download via /api/upload proxy
+// ---------------------------------------------------------------------------
+
 /**
- * Client-side download helper for use in components
- * This makes a request to the Next.js API route which handles authentication
- * @param url - The CDN URL of the file to download
- * @param filename - Optional custom filename for the download
+ * Download a file through the Next.js API route (handles private S3 auth).
+ * Accepts either a full S3 URL or an object key.
+ *
+ * @param urlOrKey     Full S3 URL or object key
+ * @param displayName  Suggested filename for the browser download dialog
  */
-export async function downloadFileViaAPI(url: string, filename?: string): Promise<void> {
-  const extractedFilename = filename || extractFilename(url)
-  
-  const response = await fetch(`/api/upload?filename=${encodeURIComponent(extractedFilename)}`, {
-    method: 'GET',
-  })
+export async function downloadFileViaAPI(urlOrKey: string, displayName?: string): Promise<void> {
+  const suggestedName = displayName || urlOrKey.split('/').pop() || 'download'
+
+  const response = await fetch(
+    `/api/upload?filename=${encodeURIComponent(urlOrKey)}`,
+    { method: 'GET' }
+  )
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({
-      error: 'Download failed',
-    }))
+    const error = await response.json().catch(() => ({ error: 'Download failed' }))
     throw new Error(error.error || 'Failed to download file')
   }
 
-  // Create a blob and trigger download
   const blob = await response.blob()
   const downloadUrl = window.URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = downloadUrl
-  a.download = extractedFilename
+  a.download = suggestedName
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
   window.URL.revokeObjectURL(downloadUrl)
+}
+
+// ---------------------------------------------------------------------------
+// Legacy server-side stubs (kept so existing imports don't break immediately)
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use uploadFileToS3 from @/lib/s3-client (server-side only) */
+export async function uploadFile(
+  _file: File,
+  _visibility: 'public' | 'private' = 'private',
+  _maxSize: number = MAX_FILE_SIZE
+): Promise<UploadResponse> {
+  throw new Error('uploadFile() is removed. Use uploadFileToS3 from @/lib/s3-client (server-side only).')
+}
+
+/** @deprecated Use deleteS3Object from @/lib/s3-client (server-side only) */
+export async function deleteFile(_filename: string): Promise<DeleteResponse> {
+  throw new Error('deleteFile() is removed. Use deleteS3Object from @/lib/s3-client (server-side only).')
+}
+
+/** @deprecated Use getS3ObjectStream from @/lib/s3-client (server-side only) */
+export async function downloadFile(_filename: string, _isPrivate = true): Promise<Blob> {
+  throw new Error('downloadFile() is removed. Use getS3ObjectStream from @/lib/s3-client (server-side only).')
 }

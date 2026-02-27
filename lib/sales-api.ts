@@ -56,20 +56,36 @@ export async function updateSale(id: string, sale: Partial<Sale>): Promise<Sale>
   const isAdmin = user.email === ADMIN_EMAIL
   if (!isAdmin) throw new Error("Forbidden: only admin can update sales")
 
-  const { data, error } = await supabase
-    .from("sales")
-    .update({ ...sale, updated_at: new Date().toISOString() })
-    .eq("id", id)
-    .select(`
-      *,
-      profiles!sales_user_id_fkey (
-        email,
-        full_name
-      )
-    `)
+  // Fetch the updater's profile name to snapshot it alongside the UUID
+  const { data: updaterProfile } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", user.id)
     .single()
 
-  if (error) throw error
+  const updaterName = updaterProfile?.full_name || updaterProfile?.email || user.email || null
+
+  // Write the update – stamp updated_by + updated_by_name
+  const { error: updateError } = await supabase
+    .from("sales")
+    .update({
+      ...sale,
+      updated_by: user.id,
+      updated_by_name: updaterName,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+
+  if (updateError) throw updateError
+
+  // Re-fetch from the view so creator AND updater profile fields are populated
+  const { data, error: fetchError } = await supabase
+    .from("sales_with_profiles")
+    .select("*")
+    .eq("id", id)
+    .single()
+
+  if (fetchError) throw fetchError
   return data
 }
 

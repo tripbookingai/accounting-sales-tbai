@@ -17,10 +17,11 @@ import { MAX_FILE_SIZE } from "@/lib/cdn-config"
 import { FileAttachmentList, FileUploadZone } from "@/components/file-attachment"
 import type { ExpenseCategory, Expense } from "@/lib/types"
 
-// Helper to upload file via API to CDN
-async function uploadAttachment(file: File): Promise<string | null> {
+// Helper to upload file via API to S3 under the correct expenses folder
+//   accounts-attachments/expenses/{sessionId}/{uuid}.ext
+async function uploadAttachment(file: File, sessionFolder: string): Promise<string | null> {
   try {
-    const url = await uploadFileViaAPI(file, 'private', MAX_FILE_SIZE);
+    const url = await uploadFileViaAPI(file, 'private', MAX_FILE_SIZE, sessionFolder);
     return url;
   } catch (error) {
     console.error('Upload failed:', error);
@@ -140,10 +141,13 @@ export function ExpenseForm({ categories, onSubmit, onCancel, initialData }: Exp
       }
       const user_id = user.id;
       
-      // Upload new files
+      // Upload new files — all files for this expense go into one session sub-folder:
+      //   accounts-attachments/expenses/{sessionId}/
+      const sessionId = `${Date.now()}`
+      const expensesFolder = `accounts-attachments/expenses/${sessionId}`
       let uploadedUrls: string[] = [];
       for (const file of attachments) {
-        const url = await uploadAttachment(file);
+        const url = await uploadAttachment(file, expensesFolder);
         if (url) uploadedUrls.push(url);
       }
       

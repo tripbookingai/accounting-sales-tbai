@@ -81,6 +81,14 @@ export interface Sale {
   profile_email?: string | null
   profile_full_name?: string | null
 
+  // Profile join data (last updater info) - flattened from the view
+  updater_profile_email?: string | null
+  updater_profile_full_name?: string | null
+
+  // Who last updated the record (uuid + snapshot name)
+  updated_by?: string | null
+  updated_by_name?: string | null
+
   // Product-specific fields
   vendor: string | null
   booking_id: string | null
@@ -132,4 +140,14 @@ export interface Sale {
 
   created_at: string
   updated_at: string
+}
+
+/** One entry in the sale_edit_logs table – records which fields changed. */
+export interface SaleEditLog {
+  id: string
+  sale_id: string
+  edited_by: string | null       // UUID of the editor
+  edited_by_name: string | null  // Snapshot of their name at edit time
+  changes: Record<string, { from: unknown; to: unknown }>
+  edited_at: string              // ISO timestamp
 }

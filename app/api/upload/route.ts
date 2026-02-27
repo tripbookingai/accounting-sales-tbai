@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { uploadFile, deleteFile, extractFilename } from '@/lib/cdn-client'
+import {
+  uploadFileToS3,
+  getS3ObjectStream,
+  deleteS3Object,
+  extractS3Key,
+  isS3Url,
+} from '@/lib/s3-client'
 import { MAX_FILE_SIZE, getFileSizeError } from '@/lib/cdn-config'
 
-const CDN_BASE_URL = process.env.NEXT_PUBLIC_CDN_BASE_URL || 'https://cdn.tripbooking.ai'
-
 /**
- * GET /api/upload?filename=<filename>
- * Download a file from the CDN (authenticated)
+ * GET /api/upload?filename=<s3-key-or-url>
+ * Stream a private file from S3 through this API route (authenticated proxy).
  */
 export async function GET(req: NextRequest) {
   try {
@@ -14,93 +18,64 @@ export async function GET(req: NextRequest) {
     const filenameOrUrl = searchParams.get('filename')
 
     if (!filenameOrUrl) {
-      return NextResponse.json({ error: 'Filename is required' }, { status: 400 })
+      return NextResponse.json({ error: 'Filename/key is required' }, { status: 400 })
     }
 
-    // Extract just the filename if a full URL was provided
-    const filename = extractFilename(filenameOrUrl)
-    
-    const apiKey = process.env.CDN_API_KEY
-    
-    console.log('Downloading file:', filename)
-    console.log('CDN_API_KEY available:', !!apiKey)
-    console.log('CDN_BASE_URL:', CDN_BASE_URL)
+    // Accept either a full S3 URL or a raw object key
+    const key = isS3Url(filenameOrUrl) ? extractS3Key(filenameOrUrl) : filenameOrUrl
 
-    if (!apiKey) {
-      console.error('CDN_API_KEY is not set in environment variables')
-      return NextResponse.json(
-        { error: 'CDN API key is not configured on server' },
-        { status: 500 }
-      )
+    console.log('Downloading S3 object:', key)
+
+    const s3Response = await getS3ObjectStream(key)
+
+    if (!s3Response.Body) {
+      return NextResponse.json({ error: 'File not found in S3' }, { status: 404 })
     }
 
-    // Download from CDN directly with API key
-    const cdnUrl = `${CDN_BASE_URL}/files/${filename}`
-    console.log('Fetching from:', cdnUrl)
-    
-    const response = await fetch(cdnUrl, {
-      method: 'GET',
-      headers: {
-        'X-API-KEY': apiKey,
-      },
-    })
+    const contentType = s3Response.ContentType || 'application/octet-stream'
+    // Extract original filename from metadata if available
+    const originalFilename = s3Response.Metadata?.['original-filename']
+      ? decodeURIComponent(s3Response.Metadata['original-filename'])
+      : key.split('/').pop() || 'file'
 
-    console.log('CDN Response status:', response.status)
-
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('CDN Error response:', errorText)
-      
-      if (response.status === 401) {
-        return NextResponse.json(
-          { error: 'Unauthorized: Invalid or missing API key for CDN' },
-          { status: 401 }
-        )
-      }
-      if (response.status === 404) {
-        return NextResponse.json(
-          { error: 'File not found on CDN' },
-          { status: 404 }
-        )
-      }
-      return NextResponse.json(
-        { error: `CDN request failed: HTTP ${response.status}` },
-        { status: response.status }
-      )
+    // Convert the S3 stream to a Uint8Array for the response
+    const chunks: Uint8Array[] = []
+    const stream = s3Response.Body as AsyncIterable<Uint8Array>
+    for await (const chunk of stream) {
+      chunks.push(chunk)
     }
+    const body = Buffer.concat(chunks)
 
-    // Get the blob from CDN response
-    const blob = await response.blob()
-    const contentType = response.headers.get('content-type') || 'application/octet-stream'
-
-    // Return the file with appropriate headers
-    return new NextResponse(blob, {
+    return new NextResponse(body, {
       headers: {
         'Content-Type': contentType,
-        'Content-Disposition': `inline; filename="${filename}"`,
+        'Content-Disposition': `inline; filename="${originalFilename}"`,
         'Cache-Control': 'private, max-age=3600',
       },
     })
   } catch (error) {
-    console.error('Download error details:', error)
+    console.error('S3 download error:', error)
     const errorMessage = error instanceof Error ? error.message : 'Failed to download file'
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    )
+    if (errorMessage.includes('NoSuchKey') || errorMessage.includes('not found')) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    }
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }
 
 /**
  * POST /api/upload
- * Upload a file to the CDN
- * Body: multipart/form-data with 'file' and optional 'visibility' fields
+ * Upload a file to AWS S3.
+ * Body: multipart/form-data with:
+ *   - file       (required) — the file to upload
+ *   - folder     (optional) — full S3 folder path, e.g. "accounts-attachments/sales/session-123"
+ *                             Defaults to "accounts-attachments/" when omitted.
+ *   - visibility (optional) — ignored; kept for backwards compatibility
  */
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
     const file = formData.get('file') as File
-    const visibility = (formData.get('visibility') as 'public' | 'private') || 'private'
 
     if (!file) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 })
@@ -108,46 +83,34 @@ export async function POST(req: NextRequest) {
 
     // Validate file size
     if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: getFileSizeError(file.size) },
-        { status: 413 }
-      )
+      return NextResponse.json({ error: getFileSizeError(file.size) }, { status: 413 })
     }
 
-    // Upload to CDN with size limit
-    const result = await uploadFile(file, visibility, MAX_FILE_SIZE)
+    // Respect the folder param so callers can place files in the right sub-folder
+    const folder = (formData.get('folder') as string | null) || 'accounts-attachments/'
 
-    // Return the CDN URL
-    return NextResponse.json({ 
+    const result = await uploadFileToS3(file, folder)
+
+    return NextResponse.json({
       url: result.url,
+      key: result.key,
       filename: result.filename,
-      visibility: result.visibility,
-      message: result.message
+      message: 'File uploaded successfully to S3',
     })
   } catch (error) {
-    console.error('Upload error:', error)
-    
-    // Handle specific error types
+    console.error('S3 upload error:', error)
     const errorMessage = error instanceof Error ? error.message : 'Failed to upload file'
-    
-    // Return 413 for file too large errors
+
     if (errorMessage.includes('exceeds maximum') || errorMessage.includes('too large')) {
-      return NextResponse.json(
-        { error: errorMessage },
-        { status: 413 }
-      )
+      return NextResponse.json({ error: errorMessage }, { status: 413 })
     }
-    
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }
 
 /**
- * DELETE /api/upload?filename=<filename>
- * Delete a file from the CDN
+ * DELETE /api/upload?filename=<s3-key-or-url>
+ * Delete a file from AWS S3.
  */
 export async function DELETE(req: NextRequest) {
   try {
@@ -155,21 +118,17 @@ export async function DELETE(req: NextRequest) {
     const filenameOrUrl = searchParams.get('filename')
 
     if (!filenameOrUrl) {
-      return NextResponse.json({ error: 'Filename is required' }, { status: 400 })
+      return NextResponse.json({ error: 'Filename/key is required' }, { status: 400 })
     }
 
-    // Extract just the filename if a full URL was provided
-    const filename = extractFilename(filenameOrUrl)
+    // Accept either a full S3 URL or a raw object key
+    const key = isS3Url(filenameOrUrl) ? extractS3Key(filenameOrUrl) : filenameOrUrl
 
-    // Delete from CDN
-    const result = await deleteFile(filename)
+    await deleteS3Object(key)
 
-    return NextResponse.json({ 
-      message: result.message,
-      filename 
-    })
+    return NextResponse.json({ message: 'File deleted successfully', key })
   } catch (error) {
-    console.error('Delete error:', error)
+    console.error('S3 delete error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to delete file' },
       { status: 500 }

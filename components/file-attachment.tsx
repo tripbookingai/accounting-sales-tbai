@@ -35,15 +35,16 @@ export function FileAttachmentItem({
   const [viewModalOpen, setViewModalOpen] = useState(false)
 
   const filename = extractFilename(url)
-  const displayName = filename || url.split('/').pop() || 'file'
+  const displayName = filename.split('/').pop() || url.split('/').pop() || 'file'
   
   // Determine file type
   const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(url)
   const isPDF = /\.pdf$/i.test(url)
   const canPreview = isImage || isPDF
 
-  // Create authenticated proxy URL for viewing
-  const viewUrl = `/api/upload?filename=${encodeURIComponent(filename)}`
+  // Create authenticated proxy URL for viewing – pass the full URL so the
+  // API route can extract the correct S3 object key (including folder prefix)
+  const viewUrl = `/api/upload?filename=${encodeURIComponent(url)}`
 
   const handleDelete = async () => {
     if (!onRemove) return

@@ -67,10 +67,11 @@ import { uploadFileViaAPI } from "@/lib/cdn-client"
 import { MAX_FILE_SIZE } from "@/lib/cdn-config"
 import { FileAttachmentList, FileUploadZone } from "@/components/file-attachment"
 
-// Helper to upload file via API to CDN
-async function uploadAttachment(file: File): Promise<string | null> {
+// Helper to upload file via API to S3 under the correct sales folder
+//   accounts-attachments/sales/{sessionId}/{uuid}.ext
+async function uploadAttachment(file: File, sessionFolder: string): Promise<string | null> {
   try {
-    const url = await uploadFileViaAPI(file, 'private', MAX_FILE_SIZE);
+    const url = await uploadFileViaAPI(file, 'private', MAX_FILE_SIZE, sessionFolder);
     return url;
   } catch (error) {
     console.error('Upload failed:', error);
@@ -447,16 +448,20 @@ export function SalesForm({ customers, vendors, onSubmit, onCancel, initialData 
         email: formData.customer_email || null
       })
 
-      // Upload new files
+      // Upload new files — all files for this sale go into one session sub-folder:
+      //   accounts-attachments/sales/{sessionId}/
+      const sessionId = `${Date.now()}`
+      const salesFolder = `accounts-attachments/sales/${sessionId}`
       let uploadedUrls: string[] = [];
       for (const file of attachments) {
-        const url = await uploadAttachment(file);
+        const url = await uploadAttachment(file, salesFolder);
         if (url) uploadedUrls.push(url);
       }
       const allUrls = [...existingAttachments, ...uploadedUrls];
     const saleData = {
       ...(initialData?.id ? { id: initialData.id } : {}),
-      user_id: user.id,
+      // Preserve the original creator when editing — only set to current user on new records
+      user_id: initialData?.user_id ?? user.id,
       transaction_date: formData.transaction_date,
       product_type: formData.product_type as any,
       trip_type:
