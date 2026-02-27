@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Plus } from "lucide-react"
+import { Plus, Paperclip, History, X } from "lucide-react"
 import { SalesForm } from "@/components/sales-form"
 import { SalesList } from "@/components/sales-list"
 import type { Sale, Customer, Vendor } from "@/lib/types"
@@ -45,6 +45,7 @@ export default function SalesPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showBanner, setShowBanner] = useState(true)
   const router = useRouter()
 
   useEffect(() => {
@@ -222,6 +223,48 @@ export default function SalesPage() {
           </Button>
         )}
       </div>
+
+      {/* ── Feature announcement banner ── */}
+      {showBanner && !showForm && (
+        <>
+          <style>{`
+            @keyframes bannerSlideIn {
+              from { opacity: 0; transform: translateY(-8px); }
+              to   { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes borderPulse {
+              0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+              50%       { box-shadow: 0 0 0 4px rgba(59,130,246,0.25); }
+            }
+            .feature-banner {
+              animation: bannerSlideIn 0.4s ease-out both,
+                         borderPulse 2.5s ease-in-out 0.5s 3;
+            }
+          `}</style>
+          <div className="feature-banner rounded-lg border-2 border-blue-300 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-blue-950/40 dark:border-blue-700 px-4 py-3 flex items-start gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-1.5">✨ New Features Available</p>
+              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-x-6 gap-y-1 text-sm text-blue-700 dark:text-blue-400">
+                <span className="flex items-center gap-1.5 whitespace-nowrap">
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  <strong>File attachments are live</strong> — upload receipts &amp; invoices to any sale.
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <History className="h-3.5 w-3.5 shrink-0" />
+                  <strong>Edit history is tracked</strong> — click the <History className="h-3 w-3 mx-0.5 inline-block" /> button on any row to see the full audit trail.
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowBanner(false)}
+              title="Dismiss"
+              className="shrink-0 mt-0.5 text-blue-400 hover:text-blue-700 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </>
+      )}
 
       {showForm ? (
         <SalesForm

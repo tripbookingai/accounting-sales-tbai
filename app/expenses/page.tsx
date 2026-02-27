@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Plus, AlertCircle, Database } from "lucide-react"
+import { Plus, AlertCircle, Database, Paperclip, X } from "lucide-react"
 import { ExpenseForm } from "@/components/expense-form"
 import { ExpenseList } from "@/components/expense-list"
 import type { Expense, ExpenseCategory } from "@/lib/types"
@@ -19,6 +19,7 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(true)
   const [tablesExist, setTablesExist] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showBanner, setShowBanner] = useState(true)
   const router = useRouter()
 
   useEffect(() => {
@@ -229,6 +230,44 @@ export default function ExpensesPage() {
           </Button>
         )}
       </div>
+
+      {/* ── File attachment banner ── */}
+      {showBanner && !showForm && (
+        <>
+          <style>{`
+            @keyframes bannerSlideIn {
+              from { opacity: 0; transform: translateY(-8px); }
+              to   { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes borderPulse {
+              0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+              50%       { box-shadow: 0 0 0 4px rgba(59,130,246,0.25); }
+            }
+            .feature-banner {
+              animation: bannerSlideIn 0.4s ease-out both,
+                         borderPulse 2.5s ease-in-out 0.5s 3;
+            }
+          `}</style>
+          <div className="feature-banner rounded-lg border-2 border-blue-300 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 dark:from-blue-950/40 dark:via-indigo-950/30 dark:to-blue-950/40 dark:border-blue-700 px-4 py-3 flex items-start gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-1.5">✨ New Feature Available</p>
+              <div className="text-sm text-blue-700 dark:text-blue-400">
+                <span className="flex items-center gap-1.5">
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  <strong>File attachments are live</strong> — upload receipts, invoices, and documents directly to any expense record, stored securely in the cloud.
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowBanner(false)}
+              title="Dismiss"
+              className="shrink-0 mt-0.5 text-blue-400 hover:text-blue-700 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </>
+      )}
 
       {showForm ? (
         <ExpenseForm
