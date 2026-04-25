@@ -8,6 +8,41 @@ type InsertSale = Omit<
   "id" | "created_at" | "updated_at" | "profit_loss" | "profit_margin" | "outstanding_balance"
 >;
 
+function parseMoneyValue(value: unknown, fallback = 0) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return parsed < 0 ? 0 : parsed;
+}
+
+function resolvePaymentReceived(body: any, fallback = 0) {
+  if (body.payment_received !== undefined) {
+    return parseMoneyValue(body.payment_received, fallback);
+  }
+
+  if (body.amount_paid !== undefined) {
+    return parseMoneyValue(body.amount_paid, fallback);
+  }
+
+  return fallback;
+}
+
+function derivePaymentStatus(
+  saleAmount: number,
+  paymentReceived: number,
+): Sale["payment_status"] {
+  if (paymentReceived <= 0) return "Pending";
+  if (saleAmount > 0 && paymentReceived >= saleAmount) return "Paid";
+  return "Partial";
+}
+
+function withDerivedAmountPaid<T extends { payment_received?: number | null }>(sale: T) {
+  return {
+    ...sale,
+    amount_paid: sale.payment_received ?? 0,
+  };
+}
+
 // Helper to calculate nights for Hotel sales
 function calculateNights(checkin?: string, checkout?: string, rooms?: number) {
   if (!checkin || !checkout) return null;
@@ -80,6 +115,8 @@ export async function POST(request: Request) {
     const saleAmount = Number(body.sale_amount) || 0;
     const cogs = Number(body.cogs) || 0;
     const transactionFeePercent = Number(body.transaction_fee_percent) || 0;
+    const paymentReceived = resolvePaymentReceived(body);
+    const paymentStatus = derivePaymentStatus(saleAmount, paymentReceived);
 
     const saleData: InsertSale = {
       transaction_date: body.transaction_date || new Date().toISOString().split("T")[0],
@@ -92,8 +129,8 @@ export async function POST(request: Request) {
       cogs: cogs,
       transaction_fee_percent: transactionFeePercent,
       payment_method: body.payment_method || null,
-      payment_received: Number(body.payment_received) || 0,
-      payment_status: body.payment_status || "Pending",
+      payment_received: paymentReceived,
+      payment_status: paymentStatus,
       notes: body.notes || null,
       tags: body.tags || [],
       vendor: body.vendor || null,
@@ -154,7 +191,7 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
-    return NextResponse.json({ success: true, data: newSale }, { status: 201 });
+    return NextResponse.json({ success: true, data: withDerivedAmountPaid(newSale) }, { status: 201 });
   } catch (error: any) {
     console.error("Sale POST API Error:", error);
     return NextResponse.json({ error: error.message || "Failed to create sale" }, { status: 500 });
@@ -179,6 +216,17 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Missing required 'id' field in request body. Tell me which sale to update." }, { status: 400 });
     }
 
+    const supabaseAdmin = getAdminSupabaseClient();
+    const { data: existingSale, error: existingSaleError } = await supabaseAdmin
+      .from("sales")
+      .select("*")
+      .eq("id", saleId)
+      .single();
+
+    if (existingSaleError || !existingSale) {
+      return NextResponse.json({ error: "Sale not found" }, { status: 404 });
+    }
+
     // Prepare fields to update
     const updateData: Partial<Sale> = {};
 
@@ -192,8 +240,6 @@ export async function PATCH(request: Request) {
     if (body.cogs !== undefined) updateData.cogs = Number(body.cogs);
     if (body.transaction_fee_percent !== undefined) updateData.transaction_fee_percent = Number(body.transaction_fee_percent);
     if (body.payment_method !== undefined) updateData.payment_method = body.payment_method;
-    if (body.payment_received !== undefined) updateData.payment_received = Number(body.payment_received);
-    if (body.payment_status !== undefined) updateData.payment_status = body.payment_status;
     if (body.notes !== undefined) updateData.notes = body.notes;
     if (body.tags !== undefined) updateData.tags = body.tags;
     if (body.vendor !== undefined) updateData.vendor = body.vendor;
@@ -207,6 +253,16 @@ export async function PATCH(request: Request) {
     if (body.number_of_rooms !== undefined) updateData.number_of_rooms = body.number_of_rooms ? Number(body.number_of_rooms) : null;
     if (body.booking_confirmation !== undefined) updateData.booking_confirmation = body.booking_confirmation;
     if (body.hotel_paid !== undefined) updateData.hotel_paid = body.hotel_paid;
+
+    const newSaleAmount =
+      body.sale_amount !== undefined ? Number(body.sale_amount) : Number(existingSale.sale_amount);
+    const newPaymentReceived = resolvePaymentReceived(body, Number(existingSale.payment_received) || 0);
+
+    if (body.payment_received !== undefined || body.amount_paid !== undefined) {
+      updateData.payment_received = newPaymentReceived;
+    }
+
+    updateData.payment_status = derivePaymentStatus(newSaleAmount, newPaymentReceived);
 
     // Recalculate nights ONLY if either checkin, checkout, or rooms are updated
     if (body.checkin_date !== undefined || body.checkout_date !== undefined || body.number_of_rooms !== undefined) {
@@ -222,11 +278,7 @@ export async function PATCH(request: Request) {
 
     // Handle recalculating the financials for PATCH dynamically
     // Fetch the existing sale to perform accurate math against old values vs updated values
-    const supabaseAdmin = getAdminSupabaseClient();
-    const { data: existingSale } = await supabaseAdmin.from("sales").select("*").eq("id", saleId).single();
-    
     if (existingSale) {
-      const newSaleAmount = body.sale_amount !== undefined ? Number(body.sale_amount) : Number(existingSale.sale_amount);
       const newCogs = body.cogs !== undefined ? Number(body.cogs) : Number(existingSale.cogs);
       const newFeePercent = body.transaction_fee_percent !== undefined ? Number(body.transaction_fee_percent) : Number(existingSale.transaction_fee_percent);
       
@@ -249,7 +301,7 @@ export async function PATCH(request: Request) {
 
     if (error) throw error;
 
-    return NextResponse.json({ success: true, data: updatedSale }, { status: 200 });
+    return NextResponse.json({ success: true, data: withDerivedAmountPaid(updatedSale) }, { status: 200 });
   } catch (error: any) {
     console.error("Sale PATCH API Error:", error);
     return NextResponse.json({ error: error.message || "Failed to update sale" }, { status: 500 });
