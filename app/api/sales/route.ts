@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { Sale } from "@/lib/types";
+import { Sale, Customer } from "@/lib/types";
 
 // Type for inserting a new sale that aligns exactly with what the real app uses.
 type InsertSale = Omit<
@@ -77,6 +77,59 @@ function getAdminSupabaseClient() {
   );
 }
 
+// Find or create customer by phone number (similar to sales form behavior)
+async function findOrCreateCustomerByPhone(
+  customerData: { name: string; phone: string; email?: string | null },
+  user_id: string
+): Promise<Customer> {
+  const supabaseAdmin = getAdminSupabaseClient();
+
+  // First, try to find existing customer by phone and user_id
+  const { data: existingCustomer, error: findError } = await supabaseAdmin
+    .from("customers")
+    .select("*")
+    .eq("user_id", user_id)
+    .eq("phone", customerData.phone)
+    .single();
+
+  if (findError && findError.code !== "PGRST116") {
+    // PGRST116 is "not found" error, other errors should be thrown
+    throw findError;
+  }
+
+  if (existingCustomer) {
+    // Update existing customer's name and email if provided
+    const { data: updatedCustomer, error: updateError } = await supabaseAdmin
+      .from("customers")
+      .update({
+        name: customerData.name,
+        email: customerData.email,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", existingCustomer.id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+    return updatedCustomer;
+  }
+
+  // Create new customer if not found
+  const { data: newCustomer, error: createError } = await supabaseAdmin
+    .from("customers")
+    .insert({
+      user_id: user_id,
+      name: customerData.name,
+      phone: customerData.phone,
+      email: customerData.email
+    })
+    .select()
+    .single();
+
+  if (createError) throw createError;
+  return newCustomer;
+}
+
 // ----------------------------------------------------------------------
 // POST: Create a new sale
 // ----------------------------------------------------------------------
@@ -118,6 +171,17 @@ export async function POST(request: Request) {
     const paymentReceived = resolvePaymentReceived(body);
     const paymentStatus = derivePaymentStatus(saleAmount, paymentReceived);
 
+    // Find or create customer by phone number (same behavior as sales form)
+    const ownerId = body.user_id || SYSTEM_BOT_UUID;
+    const customer = await findOrCreateCustomerByPhone(
+      {
+        name: body.customer_name,
+        phone: body.customer_phone,
+        email: body.customer_email || null,
+      },
+      ownerId
+    );
+
     const saleData: InsertSale = {
       transaction_date: body.transaction_date || new Date().toISOString().split("T")[0],
       product_type: body.product_type, // Typically "Hotel"
@@ -138,8 +202,8 @@ export async function POST(request: Request) {
       attachment_urls: body.attachment_urls || [],
       
       // Ownership fields 
-      user_id: body.user_id || SYSTEM_BOT_UUID, 
-      customer_id: body.customer_id || null,
+      user_id: ownerId, 
+      customer_id: customer.id, // Use found/created customer ID
       
       // Auto-calculated fields that are computed in the frontend before insertion
       transaction_fee_amount: saleAmount * (transactionFeePercent / 100),
@@ -253,6 +317,22 @@ export async function PATCH(request: Request) {
     if (body.number_of_rooms !== undefined) updateData.number_of_rooms = body.number_of_rooms ? Number(body.number_of_rooms) : null;
     if (body.booking_confirmation !== undefined) updateData.booking_confirmation = body.booking_confirmation;
     if (body.hotel_paid !== undefined) updateData.hotel_paid = body.hotel_paid;
+
+    // Handle customer: find or create by phone if customer details are provided
+    if (body.customer_phone) {
+      const customer = await findOrCreateCustomerByPhone(
+        {
+          name: body.customer_name || existingSale.customer_name,
+          phone: body.customer_phone,
+          email: body.customer_email || existingSale.customer_email || null,
+        },
+        existingSale.user_id
+      );
+      updateData.customer_id = customer.id;
+      // Also update customer name/email fields on the sale
+      if (!updateData.customer_name) updateData.customer_name = customer.name;
+      if (!updateData.customer_email) updateData.customer_email = customer.email;
+    }
 
     const newSaleAmount =
       body.sale_amount !== undefined ? Number(body.sale_amount) : Number(existingSale.sale_amount);
